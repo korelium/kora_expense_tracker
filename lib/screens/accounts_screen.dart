@@ -6,7 +6,7 @@ import '../models/enums.dart';
 
 // ACCOUNTS SCREEN - Manage all user accounts (bank, cash, credit cards, etc.)
 class AccountsScreen extends StatefulWidget {
-  const AccountsScreen({Key? key}) : super(key: key);
+  const AccountsScreen({super.key});
 
   @override
   State<AccountsScreen> createState() => _AccountsScreenState();
@@ -77,13 +77,72 @@ class _AccountsScreenState extends State<AccountsScreen> {
     ).then((_) => _loadAccounts()); // Refresh accounts after editing
   }
 
-  // DELETE ACCOUNT WITH CONFIRMATION
+  // ⭐ NEW: SHOW ACCOUNT OPTIONS MENU (EDIT/DELETE) - ADD THIS METHOD
+  void _showAccountOptions(Account account) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // EDIT OPTION
+            ListTile(
+              leading: const Icon(Icons.edit, color: Colors.blue),
+              title: const Text('Edit Account'),
+              onTap: () {
+                Navigator.pop(context); // Close popup
+                _editAccount(account); // Open edit screen
+              },
+            ),
+            // DELETE OPTION
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text(
+                'Delete Account',
+                style: TextStyle(color: Colors.red),
+              ),
+              onTap: () {
+                Navigator.pop(context); // Close popup
+                _deleteAccount(account); // Show delete confirmation
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ENHANCED: Delete account with confirmation
   Future<void> _deleteAccount(Account account) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Account'),
-        content: Text('Are you sure you want to delete "${account.name}"?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete "${account.name}"?'),
+            const SizedBox(height: 8),
+            const Text(
+              'This will also delete all transactions associated with this account.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'This action cannot be undone.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -518,8 +577,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
         // TAP TO EDIT
         onTap: () => _editAccount(account),
 
-        // LONG PRESS TO DELETE
-        onLongPress: () => _deleteAccount(account),
+        // ⭐ MODIFIED: LONG PRESS TO SHOW OPTIONS MENU (INSTEAD OF DIRECT DELETE)
+        onLongPress: () => _showAccountOptions(account),
       ),
     );
   }
@@ -549,7 +608,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
 class AddEditAccountScreen extends StatefulWidget {
   final Account? account; // null for new account, existing account for editing
 
-  const AddEditAccountScreen({Key? key, this.account}) : super(key: key);
+  const AddEditAccountScreen({super.key, this.account});
 
   @override
   State<AddEditAccountScreen> createState() => _AddEditAccountScreenState();
@@ -720,7 +779,7 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
 
               // ACCOUNT TYPE DROPDOWN
               DropdownButtonFormField<AccountType>(
-                value: _selectedType,
+                initialValue: _selectedType,
                 decoration: const InputDecoration(
                   labelText: 'Account Type',
                   border: OutlineInputBorder(),
@@ -751,7 +810,7 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
 
               // ACCOUNT SUBTYPE DROPDOWN
               DropdownButtonFormField<AccountSubType>(
-                value: _selectedSubType,
+                initialValue: _selectedSubType,
                 decoration: const InputDecoration(
                   labelText: 'Account Sub-Type',
                   border: OutlineInputBorder(),
@@ -842,7 +901,7 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
 
               // CURRENCY DROPDOWN
               DropdownButtonFormField<String>(
-                value: _selectedCurrency,
+                initialValue: _selectedCurrency,
                 decoration: const InputDecoration(
                   labelText: 'Currency',
                   border: OutlineInputBorder(),

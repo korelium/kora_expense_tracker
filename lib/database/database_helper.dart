@@ -3,8 +3,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/account.dart';
 import '../models/category.dart';
-import '../models/transaction.dart'
-    as AppTransaction; // ALIAS TO AVOID CONFLICT
+import '../models/transaction.dart' as AppTransaction;
+import '../models/enums.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -25,7 +25,6 @@ class DatabaseHelper {
   }
 
   Future<void> _createTables(Database db, int version) async {
-    // Create accounts table
     await db.execute('''
       CREATE TABLE accounts(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +41,6 @@ class DatabaseHelper {
       )
     ''');
 
-    // Create categories table
     await db.execute('''
       CREATE TABLE categories(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +57,6 @@ class DatabaseHelper {
       )
     ''');
 
-    // Create transactions table
     await db.execute('''
       CREATE TABLE transactions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,26 +74,25 @@ class DatabaseHelper {
       )
     ''');
 
-    // Insert default categories
     await _insertDefaultCategories(db);
   }
 
   Future<void> _insertDefaultCategories(Database db) async {
     final defaultCategories = [
       // Income categories
-      {'name': 'Salary', 'type': 'income', 'icon': '💰', 'color': '#4CAF50'},
-      {'name': 'Business', 'type': 'income', 'icon': '💼', 'color': '#2196F3'},
+      {'name': 'Salary', 'type': 'income', 'icon': '💰', 'color': '#2E7D32'},
+      {'name': 'Business', 'type': 'income', 'icon': '💼', 'color': '#1976D2'},
       {
         'name': 'Investment',
         'type': 'income',
         'icon': '📈',
-        'color': '#9C27B0',
+        'color': '#7B1FA2',
       },
       {
         'name': 'Other Income',
         'type': 'income',
         'icon': '💵',
-        'color': '#FF9800',
+        'color': '#F57C00',
       },
 
       // Expense categories
@@ -104,37 +100,37 @@ class DatabaseHelper {
         'name': 'Food & Dining',
         'type': 'expense',
         'icon': '🍽️',
-        'color': '#F44336',
+        'color': '#D32F2F',
       },
       {
         'name': 'Transportation',
         'type': 'expense',
         'icon': '🚗',
-        'color': '#FF5722',
+        'color': '#E64A19',
       },
       {
         'name': 'Shopping',
         'type': 'expense',
         'icon': '🛍️',
-        'color': '#E91E63',
+        'color': '#C2185B',
       },
       {
         'name': 'Entertainment',
         'type': 'expense',
         'icon': '🎬',
-        'color': '#9C27B0',
+        'color': '#7B1FA2',
       },
       {
         'name': 'Bills & Utilities',
         'type': 'expense',
         'icon': '⚡',
-        'color': '#FFC107',
+        'color': '#F9A825',
       },
       {
         'name': 'Healthcare',
         'type': 'expense',
         'icon': '🏥',
-        'color': '#03DAC6',
+        'color': '#00ACC1',
       },
       {
         'name': 'Education',
@@ -142,7 +138,12 @@ class DatabaseHelper {
         'icon': '📚',
         'color': '#3F51B5',
       },
-      {'name': 'Other', 'type': 'expense', 'icon': '📂', 'color': '#607D8B'},
+      {
+        'name': 'Balance Adjustment',
+        'type': 'expense',
+        'icon': '⚖️',
+        'color': '#5E35B1',
+      },
     ];
 
     for (var category in defaultCategories) {
@@ -160,10 +161,113 @@ class DatabaseHelper {
     }
   }
 
+  // FIXED: Account balance update logic
+  Future<void> updateAccountBalance(int accountId) async {
+    final db = await database;
+
+    final incomeResult = await db.rawQuery(
+      'SELECT COALESCE(SUM(amount), 0) as totalIncome FROM transactions WHERE accountId = ? AND type = ?',
+      [accountId, 'income'],
+    );
+    final totalIncome = (incomeResult.first['totalIncome'] as num).toDouble();
+
+    final expenseResult = await db.rawQuery(
+      'SELECT COALESCE(SUM(amount), 0) as totalExpense FROM transactions WHERE accountId = ? AND type = ?',
+      [accountId, 'expense'],
+    );
+    final totalExpense = (expenseResult.first['totalExpense'] as num)
+        .toDouble();
+
+    final newBalance = totalIncome - totalExpense;
+
+    await db.update(
+      'accounts',
+      {
+        'balance': newBalance,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [accountId],
+    );
+  }
+
+  // FIXED: Smart account update with balance adjustment
+  Future<void> updateAccount(Account account) async {
+    final db = await database;
+
+    // Get current account data
+    final currentResult = await db.query(
+      'accounts',
+      where: 'id = ?',
+      whereArgs: [account.id],
+    );
+    if (currentResult.isEmpty) return;
+
+    final currentAccount = Account.fromMap(currentResult.first);
+    final balanceDifference = account.balance - currentAccount.balance;
+
+    // Update the account
+    await db.update(
+      'accounts',
+      account.toMap(),
+      where: 'id = ?',
+      whereArgs: [account.id],
+    );
+
+    // If balance changed, create adjustment transaction
+    if (balanceDifference != 0) {
+      // Find or create "Balance Adjustment" category
+      final categories = await getCategories();
+      final adjustmentCategory = categories.firstWhere(
+        (cat) => cat.name == 'Balance Adjustment',
+        orElse: () => categories.first,
+      );
+
+      final adjustmentTransaction = AppTransaction.Transaction(
+        title: 'Balance Adjustment',
+        amount: balanceDifference.abs(),
+        date: DateTime.now(),
+        type: balanceDifference > 0
+            ? TransactionType.income
+            : TransactionType.expense,
+        accountId: account.id!,
+        categoryId: adjustmentCategory.id!,
+        notes: 'Automatic adjustment from account balance edit',
+      );
+
+      await db.insert('transactions', adjustmentTransaction.toMap());
+      await updateAccountBalance(account.id!);
+    }
+  }
+
   // Account operations
   Future<int> insertAccount(Account account) async {
     final db = await database;
-    return await db.insert('accounts', account.toMap());
+    final id = await db.insert('accounts', account.toMap());
+
+    // Create initial balance transaction if balance > 0
+    if (account.balance > 0) {
+      final categories = await getCategories();
+      final incomeCategory = categories.firstWhere(
+        (cat) => cat.type == CategoryType.income,
+        orElse: () => categories.first,
+      );
+
+      final initialTransaction = AppTransaction.Transaction(
+        title: 'Initial Balance',
+        amount: account.balance,
+        date: DateTime.now(),
+        type: TransactionType.income,
+        accountId: id,
+        categoryId: incomeCategory.id!,
+        notes: 'Initial account balance',
+      );
+
+      await db.insert('transactions', initialTransaction.toMap());
+      await updateAccountBalance(id);
+    }
+
+    return id;
   }
 
   Future<List<Account>> getAccounts() async {
@@ -176,18 +280,9 @@ class DatabaseHelper {
     return List.generate(maps.length, (i) => Account.fromMap(maps[i]));
   }
 
-  Future<void> updateAccount(Account account) async {
-    final db = await database;
-    await db.update(
-      'accounts',
-      account.toMap(),
-      where: 'id = ?',
-      whereArgs: [account.id],
-    );
-  }
-
   Future<void> deleteAccount(int id) async {
     final db = await database;
+    await db.delete('transactions', where: 'accountId = ?', whereArgs: [id]);
     await db.update(
       'accounts',
       {'isActive': 0},
@@ -224,6 +319,7 @@ class DatabaseHelper {
 
   Future<void> deleteCategory(int id) async {
     final db = await database;
+    await db.delete('transactions', where: 'categoryId = ?', whereArgs: [id]);
     await db.update(
       'categories',
       {'isActive': 0},
@@ -232,10 +328,12 @@ class DatabaseHelper {
     );
   }
 
-  // Transaction operations - USING ALIAS
+  // Transaction operations
   Future<int> insertTransaction(AppTransaction.Transaction transaction) async {
     final db = await database;
-    return await db.insert('transactions', transaction.toMap());
+    final id = await db.insert('transactions', transaction.toMap());
+    await updateAccountBalance(transaction.accountId);
+    return id;
   }
 
   Future<List<AppTransaction.Transaction>> getTransactions() async {
@@ -258,11 +356,21 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [transaction.id],
     );
+    await updateAccountBalance(transaction.accountId);
   }
 
   Future<void> deleteTransaction(int id) async {
     final db = await database;
-    await db.delete('transactions', where: 'id = ?', whereArgs: [id]);
+    final transactionResult = await db.query(
+      'transactions',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (transactionResult.isNotEmpty) {
+      final accountId = transactionResult.first['accountId'] as int;
+      await db.delete('transactions', where: 'id = ?', whereArgs: [id]);
+      await updateAccountBalance(accountId);
+    }
   }
 
   Future<void> closeDatabase() async {
