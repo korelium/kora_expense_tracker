@@ -21,7 +21,12 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'expense_tracker.db');
-    return await openDatabase(path, version: 1, onCreate: _createTables);
+    return await openDatabase(
+      path,
+      version: 3,
+      onCreate: _createTables,
+      onUpgrade: _onUpgrade,
+    );
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -59,78 +64,91 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE transactions(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        amount REAL NOT NULL,
-        date INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        accountId INTEGER NOT NULL,
-        categoryId INTEGER NOT NULL,
-        notes TEXT,
-        createdAt INTEGER NOT NULL,
-        updatedAt INTEGER NOT NULL,
-        FOREIGN KEY (accountId) REFERENCES accounts (id),
-        FOREIGN KEY (categoryId) REFERENCES categories (id)
-      )
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      amount REAL NOT NULL,
+      date INTEGER NOT NULL,
+      time INTEGER,
+      type TEXT NOT NULL,
+      accountId INTEGER NOT NULL,
+      categoryId INTEGER NOT NULL,
+      notes TEXT,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      FOREIGN KEY (accountId) REFERENCES accounts (id),
+      FOREIGN KEY (categoryId) REFERENCES categories (id)
+    )
     ''');
 
     await _insertDefaultCategories(db);
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN time INTEGER');
+    }
+  }
+
   Future<void> _insertDefaultCategories(Database db) async {
     final defaultCategories = [
-      // Income categories
-      {'name': 'Salary', 'type': 'income', 'icon': '💰', 'color': '#2E7D32'},
-      {'name': 'Business', 'type': 'income', 'icon': '💼', 'color': '#1976D2'},
+      // Income categories with proper icons
+      {'name': 'Salary', 'type': 'income', 'icon': '💰', 'color': '#4CAF50'},
+      {'name': 'Business', 'type': 'income', 'icon': '💼', 'color': '#2196F3'},
       {
         'name': 'Investment',
         'type': 'income',
         'icon': '📈',
-        'color': '#7B1FA2',
+        'color': '#9C27B0',
+      },
+      {
+        'name': 'Freelancing',
+        'type': 'income',
+        'icon': '💻',
+        'color': '#FF9800',
       },
       {
         'name': 'Other Income',
         'type': 'income',
         'icon': '💵',
-        'color': '#F57C00',
+        'color': '#607D8B',
       },
 
-      // Expense categories
+      // Expense categories with proper icons
       {
         'name': 'Food & Dining',
         'type': 'expense',
         'icon': '🍽️',
-        'color': '#D32F2F',
+        'color': '#F44336',
       },
       {
         'name': 'Transportation',
         'type': 'expense',
         'icon': '🚗',
-        'color': '#E64A19',
+        'color': '#FF5722',
       },
       {
         'name': 'Shopping',
         'type': 'expense',
         'icon': '🛍️',
-        'color': '#C2185B',
+        'color': '#E91E63',
       },
       {
         'name': 'Entertainment',
         'type': 'expense',
         'icon': '🎬',
-        'color': '#7B1FA2',
+        'color': '#9C27B0',
       },
       {
         'name': 'Bills & Utilities',
         'type': 'expense',
         'icon': '⚡',
-        'color': '#F9A825',
+        'color': '#FFC107',
       },
       {
         'name': 'Healthcare',
         'type': 'expense',
         'icon': '🏥',
-        'color': '#00ACC1',
+        'color': '#00BCD4',
       },
       {
         'name': 'Education',
@@ -139,10 +157,16 @@ class DatabaseHelper {
         'color': '#3F51B5',
       },
       {
+        'name': 'Groceries',
+        'type': 'expense',
+        'icon': '🛒',
+        'color': '#4CAF50',
+      },
+      {
         'name': 'Balance Adjustment',
         'type': 'expense',
         'icon': '⚖️',
-        'color': '#5E35B1',
+        'color': '#795548',
       },
     ];
 
@@ -161,7 +185,7 @@ class DatabaseHelper {
     }
   }
 
-  // FIXED: Account balance update logic
+  // ENHANCED: Balance calculation with credit card support
   Future<void> updateAccountBalance(int accountId) async {
     final db = await database;
 
@@ -191,11 +215,13 @@ class DatabaseHelper {
     );
   }
 
-  // FIXED: Smart account update with balance adjustment
-  Future<void> updateAccount(Account account) async {
+  // ENHANCED: Smart account update with user confirmation for balance adjustment
+  Future<void> updateAccount(
+    Account account, {
+    bool adjustBalance = false,
+  }) async {
     final db = await database;
 
-    // Get current account data
     final currentResult = await db.query(
       'accounts',
       where: 'id = ?',
@@ -206,7 +232,6 @@ class DatabaseHelper {
     final currentAccount = Account.fromMap(currentResult.first);
     final balanceDifference = account.balance - currentAccount.balance;
 
-    // Update the account
     await db.update(
       'accounts',
       account.toMap(),
@@ -214,9 +239,8 @@ class DatabaseHelper {
       whereArgs: [account.id],
     );
 
-    // If balance changed, create adjustment transaction
-    if (balanceDifference != 0) {
-      // Find or create "Balance Adjustment" category
+    // Only create adjustment transaction if user confirmed and balance changed
+    if (adjustBalance && balanceDifference != 0) {
       final categories = await getCategories();
       final adjustmentCategory = categories.firstWhere(
         (cat) => cat.name == 'Balance Adjustment',
@@ -227,12 +251,13 @@ class DatabaseHelper {
         title: 'Balance Adjustment',
         amount: balanceDifference.abs(),
         date: DateTime.now(),
+        time: DateTime.now(),
         type: balanceDifference > 0
             ? TransactionType.income
             : TransactionType.expense,
         accountId: account.id!,
         categoryId: adjustmentCategory.id!,
-        notes: 'Automatic adjustment from account balance edit',
+        notes: 'Manual balance adjustment',
       );
 
       await db.insert('transactions', adjustmentTransaction.toMap());
@@ -245,7 +270,6 @@ class DatabaseHelper {
     final db = await database;
     final id = await db.insert('accounts', account.toMap());
 
-    // Create initial balance transaction if balance > 0
     if (account.balance > 0) {
       final categories = await getCategories();
       final incomeCategory = categories.firstWhere(
@@ -257,6 +281,7 @@ class DatabaseHelper {
         title: 'Initial Balance',
         amount: account.balance,
         date: DateTime.now(),
+        time: DateTime.now(),
         type: TransactionType.income,
         accountId: id,
         categoryId: incomeCategory.id!,
@@ -328,7 +353,7 @@ class DatabaseHelper {
     );
   }
 
-  // Transaction operations
+  // Transaction operations with time support
   Future<int> insertTransaction(AppTransaction.Transaction transaction) async {
     final db = await database;
     final id = await db.insert('transactions', transaction.toMap());
@@ -340,7 +365,7 @@ class DatabaseHelper {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'transactions',
-      orderBy: 'date DESC',
+      orderBy: 'date DESC, time DESC',
     );
     return List.generate(
       maps.length,

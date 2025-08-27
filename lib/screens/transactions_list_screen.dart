@@ -7,7 +7,6 @@ import '../models/category.dart';
 import '../models/enums.dart';
 import 'add_transaction_screen.dart';
 
-// TRANSACTIONS LIST SCREEN - View all recorded transactions
 class TransactionsListScreen extends StatefulWidget {
   const TransactionsListScreen({super.key});
 
@@ -17,12 +16,10 @@ class TransactionsListScreen extends StatefulWidget {
 
 class _TransactionsListScreenState extends State<TransactionsListScreen> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
-
   List<Transaction> _transactions = [];
   List<Account> _accounts = [];
   List<Category> _categories = [];
   List<Transaction> _filteredTransactions = [];
-
   bool _isLoading = true;
   String _searchQuery = '';
   TransactionType? _filterType;
@@ -36,7 +33,6 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   Future<void> _loadData() async {
     try {
       setState(() => _isLoading = true);
-
       final transactions = await _dbHelper.getTransactions();
       final accounts = await _dbHelper.getAccounts();
       final categories = await _dbHelper.getCategories();
@@ -64,10 +60,8 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             _getCategoryName(
               transaction.categoryId,
             ).toLowerCase().contains(_searchQuery.toLowerCase());
-
         final matchesType =
             _filterType == null || transaction.type == _filterType;
-
         return matchesSearch && matchesType;
       }).toList();
     });
@@ -95,22 +89,77 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     return account.name;
   }
 
+  // ENHANCED: Edit transaction
+  Future<void> _editTransaction(Transaction transaction) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddTransactionScreen(
+          accounts: _accounts,
+          categories: _categories,
+          transaction: transaction, // Pass transaction for editing
+        ),
+      ),
+    );
+
+    if (result == true) {
+      _loadData(); // Reload data if transaction was updated
+    }
+  }
+
   Future<void> _deleteTransaction(Transaction transaction) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Transaction'),
-        content: Text(
-          'Are you sure you want to delete "${transaction.title}"?',
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Delete Transaction'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete "${transaction.title}"?'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber, color: Colors.red[700], size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'This action cannot be undone.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -124,14 +173,26 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('${transaction.title} deleted successfully'),
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text('${transaction.title} deleted successfully'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
             ),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error deleting transaction: $e')),
+            SnackBar(
+              content: Text('Error deleting transaction: $e'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         }
       }
@@ -143,9 +204,9 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transactions'),
-        backgroundColor: Colors.blue[700],
-        foregroundColor: Colors.white,
-        elevation: 2,
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        foregroundColor: Theme.of(context).appBarTheme.foregroundColor,
+        elevation: 0,
         actions: [
           IconButton(
             onPressed: () {
@@ -182,17 +243,21 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                     children: [
                       // SEARCH BAR
                       TextField(
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           hintText: 'Search transactions...',
-                          prefixIcon: Icon(Icons.search),
-                          border: OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
                         ),
                         onChanged: (value) {
                           _searchQuery = value;
                           _applyFilters();
                         },
                       ),
-
                       const SizedBox(height: 12),
 
                       // FILTER CHIPS
@@ -205,12 +270,17 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                               setState(() => _filterType = null);
                               _applyFilters();
                             },
+                            selectedColor: const Color(
+                              0xFF1A237E,
+                            ).withOpacity(0.1),
+                            checkmarkColor: const Color(0xFF1A237E),
                           ),
                           const SizedBox(width: 8),
                           FilterChip(
                             label: const Text('Income'),
                             selected: _filterType == TransactionType.income,
                             selectedColor: Colors.green[100],
+                            checkmarkColor: Colors.green[700],
                             onSelected: (selected) {
                               setState(
                                 () => _filterType = selected
@@ -225,6 +295,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                             label: const Text('Expense'),
                             selected: _filterType == TransactionType.expense,
                             selectedColor: Colors.red[100],
+                            checkmarkColor: Colors.red[700],
                             onSelected: (selected) {
                               setState(
                                 () => _filterType = selected
@@ -272,7 +343,9 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             ),
           ).then((_) => _loadData());
         },
-        backgroundColor: Colors.blue[700],
+        backgroundColor: Theme.of(
+          context,
+        ).floatingActionButtonTheme.backgroundColor,
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );
@@ -305,6 +378,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     );
   }
 
+  // ENHANCED: Transaction tile with tap to edit and long press to delete
   Widget _buildTransactionTile(Transaction transaction) {
     final category = _categories.firstWhere(
       (cat) => cat.id == transaction.categoryId,
@@ -327,19 +401,19 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
             spreadRadius: 1,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.all(16),
-
         leading: Container(
           width: 48,
           height: 48,
@@ -347,18 +421,16 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             color: Color(
               int.parse(category.color.replaceAll('#', '0xFF')),
             ).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
             child: Text(category.icon, style: const TextStyle(fontSize: 20)),
           ),
         ),
-
         title: Text(
           transaction.title,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
-
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -369,11 +441,11 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             ),
             const SizedBox(height: 2),
             Text(
-              DateFormat('MMM dd, yyyy • h:mm a').format(transaction.date),
+              '${DateFormat('MMM dd, yyyy').format(transaction.date)} • ${DateFormat('h:mm a').format(transaction.time)}',
               style: TextStyle(fontSize: 11, color: Colors.grey[500]),
             ),
             if (transaction.notes != null && transaction.notes!.isNotEmpty) ...[
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 transaction.notes!,
                 style: TextStyle(
@@ -381,11 +453,12 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                   color: Colors.grey[600],
                   fontStyle: FontStyle.italic,
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ],
         ),
-
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -396,24 +469,25 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: transaction.type == TransactionType.income
-                    ? Colors.green[700]
-                    : Colors.red[700],
+                    ? const Color(0xFF2E7D32)
+                    : const Color(0xFFD32F2F),
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             Icon(
               transaction.type == TransactionType.income
                   ? Icons.trending_up
                   : Icons.trending_down,
               size: 16,
               color: transaction.type == TransactionType.income
-                  ? Colors.green[700]
-                  : Colors.red[700],
+                  ? const Color(0xFF2E7D32)
+                  : const Color(0xFFD32F2F),
             ),
           ],
         ),
-
-        onLongPress: () => _deleteTransaction(transaction),
+        onTap: () => _editTransaction(transaction), // TAP TO EDIT
+        onLongPress: () =>
+            _deleteTransaction(transaction), // LONG PRESS TO DELETE
       ),
     );
   }

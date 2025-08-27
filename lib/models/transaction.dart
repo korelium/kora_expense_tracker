@@ -5,6 +5,7 @@ class Transaction {
   final String title;
   final double amount;
   final DateTime date;
+  final DateTime time; // NEW: Added time field
   final TransactionType type;
   final int accountId;
   final int categoryId;
@@ -17,13 +18,15 @@ class Transaction {
     required this.title,
     required this.amount,
     required this.date,
+    DateTime? time, // NEW: Time parameter
     required this.type,
     required this.accountId,
     required this.categoryId,
     this.notes,
     DateTime? createdAt,
     DateTime? updatedAt,
-  }) : createdAt = createdAt ?? DateTime.now(),
+  }) : time = time ?? DateTime.now(), // Default to now if not provided
+       createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() {
@@ -32,6 +35,7 @@ class Transaction {
       'title': title,
       'amount': amount,
       'date': date.millisecondsSinceEpoch,
+      'time': time.millisecondsSinceEpoch, // NEW: Include time
       'type': type.toString().split('.').last,
       'accountId': accountId,
       'categoryId': categoryId,
@@ -47,6 +51,7 @@ class Transaction {
       title: map['title'],
       amount: map['amount'].toDouble(),
       date: DateTime.fromMillisecondsSinceEpoch(map['date']),
+      time: DateTime.fromMillisecondsSinceEpoch(map['time'] ?? map['date']), // NEW: Handle time
       type: TransactionType.values.firstWhere(
         (e) => e.toString().split('.').last == map['type'],
       ),
@@ -62,6 +67,7 @@ class Transaction {
     String? title,
     double? amount,
     DateTime? date,
+    DateTime? time,
     TransactionType? type,
     int? accountId,
     int? categoryId,
@@ -73,6 +79,7 @@ class Transaction {
       title: title ?? this.title,
       amount: amount ?? this.amount,
       date: date ?? this.date,
+      time: time ?? this.time,
       type: type ?? this.type,
       accountId: accountId ?? this.accountId,
       categoryId: categoryId ?? this.categoryId,
@@ -84,6 +91,6 @@ class Transaction {
 
   @override
   String toString() {
-    return 'Transaction{id: $id, title: $title, amount: $amount, date: $date, type: $type, accountId: $accountId, categoryId: $categoryId}';
+    return 'Transaction{id: $id, title: $title, amount: $amount, date: $date, time: $time, type: $type}';
   }
 }

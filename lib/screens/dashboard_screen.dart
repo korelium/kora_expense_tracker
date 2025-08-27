@@ -10,6 +10,7 @@ import 'accounts_screen.dart';
 import 'add_transaction_screen.dart';
 import 'categories_screen.dart';
 import 'transactions_list_screen.dart';
+import 'settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -109,8 +110,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 3:
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const CategoriesScreen()),
-        ).then((_) => _loadData());
+          MaterialPageRoute(builder: (context) => const SettingsScreen()),
+        ).then((_) {
+          setState(() => _selectedIndex = 0); // Reset to dashboard
+          _loadData();
+        });
         break;
     }
 
@@ -262,8 +266,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: 'Accounts',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.category),
-              label: 'Categories',
+              icon: Icon(Icons.settings),
+              label: 'Settings',
             ),
           ],
         ),
