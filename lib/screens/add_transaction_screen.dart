@@ -14,11 +14,11 @@ class AddTransactionScreen extends StatefulWidget {
   final Transaction? transaction; // NEW: For editing existing transactions
 
   const AddTransactionScreen({
-    Key? key,
+    super.key,
     required this.accounts,
     required this.categories,
     this.transaction, // NEW: Transaction to edit
-  }) : super(key: key);
+  });
 
   @override
   State<AddTransactionScreen> createState() => _AddTransactionScreenState();
@@ -688,7 +688,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
             )
           : DropdownButtonFormField<Account>(
-              value: _selectedAccount,
+              initialValue: _selectedAccount,
               focusNode: _accountFocusNode,
               decoration: InputDecoration(
                 labelText: 'Account',
@@ -796,7 +796,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
             )
           : DropdownButtonFormField<Category>(
-              value: _selectedCategory,
+              initialValue: _selectedCategory,
               focusNode: _categoryFocusNode,
               decoration: InputDecoration(
                 labelText: 'Category',

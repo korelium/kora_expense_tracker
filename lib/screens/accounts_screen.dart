@@ -698,6 +698,63 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
   final _balanceController = TextEditingController();
   final _creditLimitController = TextEditingController();
   final _outstandingController = TextEditingController();
+  // Credit Card specific controllers
+  final _bankNameController = TextEditingController();
+  final _cardTypeController = TextEditingController();
+  final _cardCategoryController = TextEditingController();
+  final _last6DigitsController = TextEditingController();
+  final _expiryDateController = TextEditingController();
+  final _rewardRateController = TextEditingController();
+  final _annualFeeController = TextEditingController();
+  final _foreignFeeController = TextEditingController();
+  final _minPaymentController = TextEditingController();
+
+  // Credit Card dropdowns
+  String _selectedBankName = 'HDFC Bank';
+  String _selectedCardType = 'Visa';
+  String _selectedCardCategory = 'Rewards';
+  String _selectedCardStatus = 'Active';
+  int? _billingDate;
+  int? _dueDate;
+
+  // Indian Banks
+  final List<String> _indianBanks = [
+    'HDFC Bank',
+    'ICICI Bank',
+    'State Bank of India',
+    'Axis Bank',
+    'Kotak Mahindra Bank',
+    'Yes Bank',
+    'IndusInd Bank',
+    'IDFC First Bank',
+    'RBL Bank',
+    'Standard Chartered',
+    'Citibank',
+    'HSBC',
+    'American Express',
+    'Punjab National Bank',
+    'Bank of Baroda',
+    'Canara Bank',
+    'Union Bank',
+  ];
+
+  final List<String> _cardTypes = [
+    'Visa',
+    'MasterCard',
+    'American Express',
+    'RuPay',
+    'Diners Club',
+  ];
+  final List<String> _cardCategories = [
+    'Rewards',
+    'Cashback',
+    'Travel',
+    'Fuel',
+    'Shopping',
+    'Dining',
+    'Premium',
+  ];
+  final List<String> _cardStatuses = ['Active', 'Inactive', 'Blocked', 'Lost'];
 
   AccountType _selectedType = AccountType.asset;
   AccountSubType _selectedSubType = AccountSubType.bank;
@@ -707,21 +764,24 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.account != null) {
-      _nameController.text = widget.account!.name;
-      _balanceController.text = widget.account!.balance.toString();
-      _selectedType = widget.account!.type;
-      _selectedSubType = widget.account!.subType;
-      _selectedCurrency = widget.account!.currency;
-
-      if (widget.account!.creditLimit != null) {
-        _creditLimitController.text = widget.account!.creditLimit.toString();
-      }
-
-      if (widget.account!.outstandingAmount != null) {
-        _outstandingController.text = widget.account!.outstandingAmount
-            .toString();
-      }
+    // Initialize credit card fields if editing
+    if (widget.account != null && widget.account!.creditCardDetails != null) {
+      final cardDetails = widget.account!.creditCardDetails!;
+      _bankNameController.text = cardDetails.bankName ?? '';
+      _selectedBankName = cardDetails.bankName ?? 'HDFC Bank';
+      _selectedCardType = cardDetails.cardType ?? 'Visa';
+      _selectedCardCategory = cardDetails.cardCategory ?? 'Rewards';
+      _selectedCardStatus = cardDetails.cardStatus ?? 'Active';
+      _last6DigitsController.text = cardDetails.last6Digits ?? '';
+      _expiryDateController.text = cardDetails.expiryDate ?? '';
+      _rewardRateController.text = cardDetails.rewardRate ?? '';
+      _annualFeeController.text = cardDetails.annualFee?.toString() ?? '';
+      _foreignFeeController.text =
+          cardDetails.foreignTransactionFee?.toString() ?? '';
+      _minPaymentController.text =
+          cardDetails.minPaymentAmount?.toString() ?? '';
+      _billingDate = cardDetails.billingDate;
+      _dueDate = cardDetails.dueDate;
     }
   }
 
@@ -735,12 +795,43 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
   }
 
   // ENHANCED: Balance adjustment confirmation
-  Future<void> _saveAccount() async {
+  Future _saveAccount() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
     try {
+      CreditCardDetails? creditCardDetails;
+
+      // Create credit card details if it's a credit card
+      if (_selectedSubType == AccountSubType.creditCard) {
+        creditCardDetails = CreditCardDetails(
+          last6Digits: _last6DigitsController.text.trim().isEmpty
+              ? null
+              : _last6DigitsController.text.trim(),
+          bankName: _selectedBankName,
+          cardType: _selectedCardType,
+          cardCategory: _selectedCardCategory,
+          cardStatus: _selectedCardStatus,
+          expiryDate: _expiryDateController.text.trim().isEmpty
+              ? null
+              : _expiryDateController.text.trim(),
+          billingDate: _billingDate,
+          dueDate: _dueDate,
+          minPaymentAmount: _minPaymentController.text.trim().isEmpty
+              ? null
+              : double.tryParse(_minPaymentController.text.trim()),
+          rewardRate: _rewardRateController.text.trim().isEmpty
+              ? null
+              : _rewardRateController.text.trim(),
+          annualFee: _annualFeeController.text.trim().isEmpty
+              ? null
+              : double.tryParse(_annualFeeController.text.trim()),
+          foreignTransactionFee: _foreignFeeController.text.trim().isEmpty
+              ? null
+              : double.tryParse(_foreignFeeController.text.trim()),
+        );
+      }
+
       final account = Account(
         id: widget.account?.id,
         name: _nameController.text.trim(),
@@ -754,15 +845,14 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
             ? double.parse(_outstandingController.text.trim())
             : null,
         currency: _selectedCurrency,
+        creditCardDetails: creditCardDetails,
       );
 
-      // Check if editing and balance changed
+      // Rest of existing logic...
       bool shouldCreateAdjustment = false;
       if (widget.account != null) {
         final balanceDifference = account.balance - widget.account!.balance;
-
         if (balanceDifference != 0) {
-          // Ask user if they want to create adjustment transaction
           final shouldAdjust = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
@@ -778,11 +868,6 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
                   const Text(
                     'Would you like to create an adjustment transaction to reflect this change?',
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'This will help maintain accurate transaction history.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
                 ],
               ),
               actions: [
@@ -797,7 +882,6 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
               ],
             ),
           );
-
           shouldCreateAdjustment = shouldAdjust ?? false;
         }
       }
@@ -974,47 +1058,262 @@ class _AddEditAccountScreenState extends State<AddEditAccountScreen> {
 
               const SizedBox(height: 16),
 
+              // CREDIT CARD SPECIFIC FIELDS
               if (_selectedSubType == AccountSubType.creditCard) ...[
-                TextFormField(
-                  controller: _creditLimitController,
-                  decoration: const InputDecoration(
-                    labelText: 'Credit Limit',
-                    hintText: '0.00',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.credit_score),
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue[200]!),
                   ),
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value != null && value.trim().isNotEmpty) {
-                      if (double.tryParse(value.trim()) == null) {
-                        return 'Please enter a valid number';
-                      }
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _outstandingController,
-                  decoration: const InputDecoration(
-                    labelText: 'Outstanding Amount',
-                    hintText: '0.00',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.payment),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.credit_card, color: Colors.blue[700]),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Credit Card Details',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _selectedBankName,
+                        decoration: const InputDecoration(
+                          labelText: 'Bank Name *',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.account_balance),
+                        ),
+                        items: _indianBanks
+                            .map(
+                              (bank) => DropdownMenuItem(
+                                value: bank,
+                                child: Text(bank),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _selectedBankName = value!),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedCardType,
+                              decoration: const InputDecoration(
+                                labelText: 'Card Type *',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.credit_card),
+                              ),
+                              items: _cardTypes
+                                  .map(
+                                    (type) => DropdownMenuItem(
+                                      value: type,
+                                      child: Text(type),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) =>
+                                  setState(() => _selectedCardType = value!),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedCardCategory,
+                              decoration: const InputDecoration(
+                                labelText: 'Category',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.category),
+                              ),
+                              items: _cardCategories
+                                  .map(
+                                    (cat) => DropdownMenuItem(
+                                      value: cat,
+                                      child: Text(cat),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) => setState(
+                                () => _selectedCardCategory = value!,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _last6DigitsController,
+                              decoration: const InputDecoration(
+                                labelText: 'Last 6 Digits (Optional)',
+                                hintText: '●●●●●● 1234',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.numbers),
+                              ),
+                              keyboardType: TextInputType.number,
+                              maxLength: 6,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedCardStatus,
+                              decoration: const InputDecoration(
+                                labelText: 'Status',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.info),
+                              ),
+                              items: _cardStatuses
+                                  .map(
+                                    (status) => DropdownMenuItem(
+                                      value: status,
+                                      child: Text(status),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) =>
+                                  setState(() => _selectedCardStatus = value!),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _expiryDateController,
+                              decoration: const InputDecoration(
+                                labelText: 'Expiry Date (MM/YY)',
+                                hintText: '12/28',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.date_range),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _minPaymentController,
+                              decoration: const InputDecoration(
+                                labelText: 'Min Payment',
+                                hintText: '₹ 2,000',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.payment),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _rewardRateController,
+                              decoration: const InputDecoration(
+                                labelText: 'Reward Rate',
+                                hintText: '2 pts/₹100',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.card_giftcard),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _annualFeeController,
+                              decoration: const InputDecoration(
+                                labelText: 'Annual Fee',
+                                hintText: '₹ 2,999',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.monetization_on),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _foreignFeeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Foreign Transaction Fee (%)',
+                          hintText: '3.5',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.public),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              value: _billingDate,
+                              decoration: const InputDecoration(
+                                labelText: 'Billing Date',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.calendar_today),
+                              ),
+                              hint: const Text('Select Day'),
+                              items: List.generate(31, (i) => i + 1)
+                                  .map(
+                                    (day) => DropdownMenuItem(
+                                      value: day,
+                                      child: Text('${day}th'),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) =>
+                                  setState(() => _billingDate = value),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              value: _dueDate,
+                              decoration: const InputDecoration(
+                                labelText: 'Due Date',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.schedule),
+                              ),
+                              hint: const Text('Select Day'),
+                              items: List.generate(31, (i) => i + 1)
+                                  .map(
+                                    (day) => DropdownMenuItem(
+                                      value: day,
+                                      child: Text('${day}th'),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) =>
+                                  setState(() => _dueDate = value),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value != null && value.trim().isNotEmpty) {
-                      if (double.tryParse(value.trim()) == null) {
-                        return 'Please enter a valid number';
-                      }
-                    }
-                    return null;
-                  },
                 ),
-                const SizedBox(height: 16),
               ],
 
+              // ],
               DropdownButtonFormField<String>(
                 initialValue: _selectedCurrency,
                 decoration: const InputDecoration(

@@ -41,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     themeNotifier.toggleTheme();
                   });
                 },
-                activeColor: const Color(0xFF1A237E),
+                activeThumbColor: const Color(0xFF1A237E),
               ),
             ),
 

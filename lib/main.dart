@@ -29,7 +29,7 @@ void main() async {
 }
 
 class KoraExpenseTrackerApp extends StatelessWidget {
-  const KoraExpenseTrackerApp({Key? key}) : super(key: key);
+  const KoraExpenseTrackerApp({super.key});
 
   @override
   Widget build(BuildContext context) {

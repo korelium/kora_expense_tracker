@@ -8,7 +8,6 @@ import '../models/category.dart';
 import '../models/enums.dart';
 import 'accounts_screen.dart';
 import 'add_transaction_screen.dart';
-import 'categories_screen.dart';
 import 'transactions_list_screen.dart';
 import 'settings_screen.dart';
 
@@ -21,7 +20,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
-
   List<Transaction> _transactions = [];
   List<Account> _accounts = [];
   List<Category> _categories = [];
@@ -46,9 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final transactions = await _dbHelper.getTransactions();
       final accounts = await _dbHelper.getAccounts();
       final categories = await _dbHelper.getCategories();
-
       _calculateTotals(transactions, accounts);
-
       setState(() {
         _transactions = transactions;
         _accounts = accounts;
@@ -66,7 +62,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<Account> accounts,
   ) {
     _totalBalance = accounts.fold(0.0, (sum, account) => sum + account.balance);
-
     final now = DateTime.now();
     final thisMonth = DateTime(now.year, now.month, 1);
     double monthlyIncome = 0.0;
@@ -88,37 +83,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _onNavItemTapped(int index) {
     setState(() => _selectedIndex = index);
+  }
 
-    switch (index) {
+  // NEW: Method to get current screen content
+  Widget _getCurrentScreen() {
+    switch (_selectedIndex) {
       case 0:
-        _loadData();
-        break;
+        return _buildDashboardContent();
       case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const TransactionsListScreen(),
-          ),
-        ).then((_) => _loadData());
-        break;
+        return const TransactionsListScreen();
       case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const AccountsScreen()),
-        ).then((_) => _loadData());
-        break;
+        return const AccountsScreen();
       case 3:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const SettingsScreen()),
-        ).then((_) {
-          setState(() => _selectedIndex = 0); // Reset to dashboard
-          _loadData();
-        });
-        break;
+        return const SettingsScreen();
+      default:
+        return _buildDashboardContent();
     }
+  }
 
-    setState(() => _selectedIndex = 0);
+  // NEW: Dashboard content as a separate widget
+  Widget _buildDashboardContent() {
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildBalanceCard(),
+            const SizedBox(height: 20),
+            _buildMonthlySummary(),
+            const SizedBox(height: 24),
+            _buildRecentTransactions(),
+          ],
+        ),
+      ),
+    );
   }
 
   // FIXED: Delete transaction from dashboard
@@ -205,45 +206,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
           foregroundColor: Colors.white,
           elevation: 0,
         ),
-
         body: _isLoading
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF1A237E)),
               )
-            : RefreshIndicator(
-                onRefresh: _loadData,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildBalanceCard(),
-                      const SizedBox(height: 20),
-                      _buildMonthlySummary(),
-                      const SizedBox(height: 24),
-                      _buildRecentTransactions(),
-                    ],
-                  ),
-                ),
-              ),
-
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AddTransactionScreen(
-                  accounts: _accounts,
-                  categories: _categories,
-                ),
-              ),
-            ).then((_) => _loadData());
-          },
-          backgroundColor: const Color(0xFF1A237E),
-          child: const Icon(Icons.add, color: Colors.white),
-        ),
-
+            : _getCurrentScreen(),
+        floatingActionButton: _selectedIndex == 0
+            ? FloatingActionButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AddTransactionScreen(
+                        accounts: _accounts,
+                        categories: _categories,
+                      ),
+                    ),
+                  ).then((_) => _loadData());
+                },
+                backgroundColor: const Color(0xFF1A237E),
+                child: const Icon(Icons.add, color: Colors.white),
+              )
+            : null,
         bottomNavigationBar: BottomNavigationBar(
           type: BottomNavigationBarType.fixed,
           currentIndex: _selectedIndex,
@@ -381,9 +365,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
         ),
-
         const SizedBox(width: 16),
-
         Expanded(
           child: Container(
             padding: const EdgeInsets.all(20),
@@ -444,7 +426,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildRecentTransactions() {
     final recentTransactions = _transactions.take(5).toList();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -461,7 +442,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             if (_transactions.isNotEmpty)
               TextButton(
-                onPressed: () => _onNavItemTapped(1),
+                onPressed: () => setState(() => _selectedIndex = 1),
                 child: const Text(
                   'View All',
                   style: TextStyle(color: Color(0xFF1A237E)),
@@ -469,9 +450,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
           ],
         ),
-
         const SizedBox(height: 16),
-
         if (recentTransactions.isEmpty)
           Container(
             width: double.infinity,
@@ -510,14 +489,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // FIXED: Added long press functionality to transaction tiles
   Widget _buildTransactionTile(Transaction transaction) {
     final category = _categories.firstWhere(
       (cat) => cat.id == transaction.categoryId,
       orElse: () =>
           Category(name: 'Unknown', type: CategoryType.expense, icon: '❓'),
     );
-
     final account = _accounts.firstWhere(
       (acc) => acc.id == transaction.accountId,
       orElse: () => Account(
@@ -546,9 +523,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onLongPress: () => _deleteTransactionFromDashboard(
-          transaction,
-        ), // FIXED: Long press added
+        onLongPress: () => _deleteTransactionFromDashboard(transaction),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -569,9 +544,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(width: 16),
-
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -597,7 +570,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ),
-
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [

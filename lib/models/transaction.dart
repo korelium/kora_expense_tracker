@@ -51,7 +51,9 @@ class Transaction {
       title: map['title'],
       amount: map['amount'].toDouble(),
       date: DateTime.fromMillisecondsSinceEpoch(map['date']),
-      time: DateTime.fromMillisecondsSinceEpoch(map['time'] ?? map['date']), // NEW: Handle time
+      time: DateTime.fromMillisecondsSinceEpoch(
+        map['time'] ?? map['date'],
+      ), // NEW: Handle time
       type: TransactionType.values.firstWhere(
         (e) => e.toString().split('.').last == map['type'],
       ),

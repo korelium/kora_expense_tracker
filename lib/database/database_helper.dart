@@ -23,7 +23,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'expense_tracker.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _createTables,
       onUpgrade: _onUpgrade,
     );
@@ -32,19 +32,20 @@ class DatabaseHelper {
   Future<void> _createTables(Database db, int version) async {
     await db.execute('''
       CREATE TABLE accounts(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        subType TEXT NOT NULL,
-        balance REAL NOT NULL,
-        creditLimit REAL,
-        outstandingAmount REAL,
-        currency TEXT NOT NULL,
-        isActive INTEGER NOT NULL,
-        createdAt INTEGER NOT NULL,
-        updatedAt INTEGER NOT NULL
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      subType TEXT NOT NULL,
+      balance REAL NOT NULL,
+      creditLimit REAL,
+      outstandingAmount REAL,
+      currency TEXT NOT NULL,
+      isActive INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      cardDetails TEXT
       )
-    ''');
+      ''');
 
     await db.execute('''
       CREATE TABLE categories(
@@ -83,9 +84,13 @@ class DatabaseHelper {
     await _insertDefaultCategories(db);
   }
 
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE transactions ADD COLUMN time INTEGER');
+    }
+    if (oldVersion < 4) {
+      // Add credit card details field for enhanced card management
+      await db.execute('ALTER TABLE accounts ADD COLUMN cardDetails TEXT');
     }
   }
 
