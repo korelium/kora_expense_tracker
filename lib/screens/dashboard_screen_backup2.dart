@@ -11,7 +11,6 @@ import 'add_transaction_screen.dart';
 import 'transactions_list_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/forms/add_edit_account_screen.dart';
-import '../widgets/enhanced_transaction_tile.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -33,9 +32,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // DOUBLE BACK PRESS VARIABLES
   DateTime? _lastBackPressed;
-
-  // Track which cards have already shown utilization warnings this session
-  final Set<int> _shownUtilizationWarnings = <int>{};
 
   @override
   void initState() {
@@ -124,8 +120,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _onNavItemTapped(int index) {
     if (mounted) {
       setState(() => _selectedIndex = index);
-      // Refresh data when switching to dashboard or accounts tab
-      if (index == 0 || index == 2) {
+      // Refresh data when switching to accounts tab
+      if (index == 2) {
         _loadData();
       }
     }
@@ -137,14 +133,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 0:
         return _buildDashboardContent();
       case 1:
-        return TransactionsListScreen(
-          onTransactionChanged: () {
-            // Refresh dashboard data when transactions change
-            if (mounted) {
-              _loadData();
-            }
-          },
-        );
+        return const TransactionsListScreen();
       case 2:
         return AccountsScreen(onAccountChanged: _loadData);
       case 3:
@@ -255,79 +244,72 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // NEW: Credit utilization alert system for dashboard
   void _showCreditUtilizationAlerts() {
     if (!mounted) return;
+    
     final creditCards = _accounts
         .where((account) => account.subType == AccountSubType.creditCard)
         .toList();
+
     for (final card in creditCards) {
       if (card.creditLimit != null && card.outstandingAmount != null) {
         final utilization = card.outstandingAmount! / card.creditLimit!;
 
-        // Only show warning if we haven't shown it for this card this session
-        if (!_shownUtilizationWarnings.contains(card.id)) {
-          if (utilization > 0.6) {
-            _shownUtilizationWarnings.add(card.id!); // Mark as shown
-            // HIGH USAGE ALERT
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.warning, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'HIGH USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+        if (utilization > 0.6) {
+          // HIGH USAGE ALERT
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.warning, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'HIGH USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                  ],
-                ),
-                backgroundColor: Colors.red[700],
-                duration: const Duration(seconds: 4),
-                action: SnackBarAction(
-                  label: 'View',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    if (mounted) {
-                      setState(
-                        () => _selectedIndex = 2,
-                      ); // Switch to accounts tab
-                    }
-                  },
-                ),
+                  ),
+                ],
               ),
-            );
-          } else if (utilization > 0.3) {
-            _shownUtilizationWarnings.add(card.id!); // Mark as shown
-            // MODERATE USAGE ALERT
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.info, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'MODERATE USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
-                      ),
+              backgroundColor: Colors.red[700],
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  if (mounted) {
+                    setState(() => _selectedIndex = 2); // Switch to accounts tab
+                  }
+                },
+              ),
+            ),
+          );
+        } else if (utilization > 0.3) {
+          // MODERATE USAGE ALERT
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.info, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'MODERATE USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
                     ),
-                  ],
-                ),
-                backgroundColor: Colors.orange[700],
-                duration: const Duration(seconds: 3),
-                action: SnackBarAction(
-                  label: 'View',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    if (mounted) {
-                      setState(
-                        () => _selectedIndex = 2,
-                      ); // Switch to accounts tab
-                    }
-                  },
-                ),
+                  ),
+                ],
               ),
-            );
-          }
+              backgroundColor: Colors.orange[700],
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  if (mounted) {
+                    setState(() => _selectedIndex = 2); // Switch to accounts tab
+                  }
+                },
+              ),
+            ),
+          );
         }
       }
     }
@@ -366,11 +348,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onPopInvoked: (bool didPop) async {
         if (!didPop) {
           if (_selectedIndex != 0) {
-            // If not on dashboard, go back to dashboard and refresh
+            // If not on dashboard, go back to dashboard
             if (mounted) {
               setState(() => _selectedIndex = 0);
-              // Refresh data when returning to dashboard
-              _loadData();
             }
           } else {
             // If on dashboard, show exit confirmation
@@ -410,23 +390,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: const Icon(Icons.add, color: Colors.white),
               )
             : _selectedIndex == 2
-            ? FloatingActionButton(
-                onPressed: () async {
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const AddEditAccountScreen(),
-                    ),
-                  );
-                  if (mounted && result == true) {
-                    await _loadData();
-                    // Success message is handled by AddEditAccountScreen
-                  }
-                },
-                backgroundColor: const Color(0xFF1A237E),
-                child: const Icon(Icons.add, color: Colors.white),
-              )
-            : null,
+                ? FloatingActionButton(
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AddEditAccountScreen(),
+                        ),
+                      );
+                      if (mounted && result == true) {
+                        await _loadData();
+                        // Don't show duplicate message - AddEditAccountScreen already shows one
+                      }
+                    },
+                    backgroundColor: const Color(0xFF1A237E),
+                    child: const Icon(Icons.add, color: Colors.white),
+                  )
+                : null,
         bottomNavigationBar: BottomNavigationBar(
           type: BottomNavigationBarType.fixed,
           currentIndex: _selectedIndex,
@@ -878,28 +858,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(40),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.grey[50]!, Colors.grey[100]!],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.grey[200]!),
             ),
             child: Column(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.receipt_long,
-                    size: 48,
-                    color: Colors.grey[600],
-                  ),
-                ),
+                Icon(Icons.receipt_long, size: 64, color: Colors.grey[400]),
                 const SizedBox(height: 16),
                 Text(
                   'No transactions yet',
@@ -919,26 +884,148 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           )
         else
-          // Beautiful transaction list with enhanced tiles
+          // Fixed transaction list to prevent mouse tracker issues
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: recentTransactions.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
+            separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final transaction = recentTransactions[index];
-              return EnhancedTransactionTile(
+              return _TransactionTile(
                 key: ValueKey('transaction_${transaction.id}'),
                 transaction: transaction,
                 categories: _categories,
                 accounts: _accounts,
                 onEdit: _editTransactionFromDashboard,
                 onDelete: _deleteTransactionFromDashboard,
-                isCompact: true, // Compact mode for dashboard
               );
             },
           ),
       ],
+    );
+  }
+}
+
+// Separate stateless widget to prevent mouse tracker issues
+class _TransactionTile extends StatelessWidget {
+  final Transaction transaction;
+  final List<Category> categories;
+  final List<Account> accounts;
+  final Function(Transaction) onEdit;
+  final Function(Transaction) onDelete;
+
+  const _TransactionTile({
+    super.key,
+    required this.transaction,
+    required this.categories,
+    required this.accounts,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final category = categories.firstWhere(
+      (cat) => cat.id == transaction.categoryId,
+      orElse: () =>
+          Category(name: 'Unknown', type: CategoryType.expense, icon: '❓'),
+    );
+    final account = accounts.firstWhere(
+      (acc) => acc.id == transaction.accountId,
+      orElse: () => Account(
+        name: 'Unknown',
+        type: AccountType.asset,
+        subType: AccountSubType.cash,
+        balance: 0,
+        currency: 'INR',
+      ),
+    );
+
+    return Material(
+      elevation: 1,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => onEdit(transaction),
+        onLongPress: () => onDelete(transaction),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Color(
+                    int.parse(category.color.replaceAll('#', '0xFF')),
+                  ).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    category.icon,
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      transaction.title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${category.name} • ${account.name}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      DateFormat('MMM dd, yyyy').format(transaction.date),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: (transaction.type == TransactionType.income
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFFD32F2F))
+                      .withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${transaction.type == TransactionType.income ? '+' : '-'}₹${NumberFormat('#,##,###.##').format(transaction.amount)}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: transaction.type == TransactionType.income
+                        ? const Color(0xFF2E7D32)
+                        : const Color(0xFFD32F2F),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

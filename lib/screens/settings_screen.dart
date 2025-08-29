@@ -1,3 +1,5 @@
+import '../services/sample_data_service.dart';
+import '../services/data_export_import_service.dart';
 import 'package:flutter/material.dart';
 import '../main.dart';
 import 'categories_screen.dart';
@@ -72,7 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'Export Data',
               subtitle: 'Export your data as CSV file',
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => _showComingSoon(context, 'Export Data'),
+              onTap: () => _exportData(context),
             ),
 
             _buildSettingsTile(
@@ -80,7 +82,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'Import Data',
               subtitle: 'Import data from CSV file',
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => _showComingSoon(context, 'Import Data'),
+              onTap: () => _importData(context),
+            ),
+            _buildSettingsTile(
+              icon: Icons.data_usage,
+              title: 'Load Sample Data',
+              subtitle: 'Import realistic test data for practice',
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => _loadSampleData(context),
+            ),
+
+            _buildSettingsTile(
+              icon: Icons.clear_all,
+              title: 'Clear All Data',
+              subtitle: 'Delete all accounts and transactions',
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => _clearAllData(context),
             ),
 
             _buildSettingsTile(
@@ -346,5 +363,400 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text('Built with ❤️ using Flutter'),
       ],
     );
+  }
+
+  Future<void> _loadSampleData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A237E).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.data_usage, color: Color(0xFF1A237E)),
+            ),
+            const SizedBox(width: 12),
+            const Text('Load Sample Data'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('This will create:'),
+            SizedBox(height: 12),
+            Text('• 7 Sample accounts (including credit cards)'),
+            Text('• 10 Recent transactions'),
+            Text('• Realistic Indian expense data'),
+            SizedBox(height: 16),
+            Text('Perfect for testing features!'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Load Sample Data'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        print('🚀 Loading sample data started...');
+        await SampleDataService().loadSampleData();
+        print('✅ Sample data loading completed!');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sample data loaded successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          // Force refresh by popping back to dashboard
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error loading sample data: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _clearAllData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.warning, color: Colors.red),
+            ),
+            const SizedBox(width: 12),
+            const Text('Clear All Data'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('⚠️ This will permanently delete:'),
+            SizedBox(height: 12),
+            Text('• All accounts'),
+            Text('• All transactions'),
+            Text('• All custom categories'),
+            SizedBox(height: 16),
+            Text('This action cannot be undone!'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Clear All Data'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await SampleDataService().clearAllData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('All data cleared successfully!'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error clearing data: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // Export data functionality
+  Future<void> _exportData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A237E).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.cloud_upload, color: Color(0xFF1A237E)),
+            ),
+            const SizedBox(width: 12),
+            const Text('Export Data'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('This will export all your data to CSV files:'),
+            SizedBox(height: 12),
+            Text('• accounts.csv - All your accounts'),
+            Text('• categories.csv - All categories'),
+            Text('• transactions.csv - All transactions'),
+            Text('• export_summary.txt - Export details'),
+            SizedBox(height: 16),
+            Text('You can share or save these files for backup.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Export Data'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        // Show loading dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Exporting data...'),
+              ],
+            ),
+          ),
+        );
+
+        final exportService = DataExportImportService();
+        final exportPath = await exportService.exportDataToCSV();
+        
+        // Close loading dialog
+        Navigator.pop(context);
+
+        // Show success dialog with share option
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.check_circle, color: Colors.green),
+                ),
+                const SizedBox(width: 12),
+                const Text('Export Successful'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Your data has been exported successfully!'),
+                const SizedBox(height: 16),
+                Text('Files saved to:\n$exportPath'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await exportService.shareExportedData(exportPath);
+                },
+                child: const Text('Share Files'),
+              ),
+            ],
+          ),
+        );
+      } catch (e) {
+        // Close loading dialog if open
+        Navigator.pop(context);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Export failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // Import data functionality
+  Future<void> _importData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.warning, color: Colors.orange),
+            ),
+            const SizedBox(width: 12),
+            const Text('Import Data'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('⚠️ Important:'),
+            SizedBox(height: 12),
+            Text('• This will ADD data to your existing records'),
+            Text('• Select CSV files exported from Kora'),
+            Text('• You can select multiple files at once'),
+            Text('• Make sure files are in correct CSV format'),
+            SizedBox(height: 16),
+            Text('Supported files: accounts.csv, categories.csv, transactions.csv'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Select Files'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        // Show loading dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Importing data...'),
+              ],
+            ),
+          ),
+        );
+
+        final exportService = DataExportImportService();
+        final results = await exportService.importDataFromCSV();
+        
+        // Close loading dialog
+        Navigator.pop(context);
+
+        // Show success dialog
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.check_circle, color: Colors.green),
+                ),
+                const SizedBox(width: 12),
+                const Text('Import Successful'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Data imported successfully!'),
+                const SizedBox(height: 16),
+                Text('Imported:'),
+                Text('• ${results['accounts']} accounts'),
+                Text('• ${results['categories']} categories'),
+                Text('• ${results['transactions']} transactions'),
+              ],
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Go back to dashboard to see imported data
+                  Navigator.of(context).pop();
+                },
+                child: const Text('View Dashboard'),
+              ),
+            ],
+          ),
+        );
+      } catch (e) {
+        // Close loading dialog if open
+        Navigator.pop(context);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Import failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 }

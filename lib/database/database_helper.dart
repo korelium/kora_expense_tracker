@@ -81,6 +81,8 @@ class DatabaseHelper {
     )
     ''');
 
+    
+
     await _insertDefaultCategories(db);
   }
 
@@ -190,10 +192,27 @@ class DatabaseHelper {
     }
   }
 
-  // ENHANCED: Balance calculation with credit card support
-  Future<void> updateAccountBalance(int accountId) async {
+  // PUBLIC: Recreate default categories (for sample data service)
+  // Future<void> recreateDefaultCategories() async {
+  //   final db = await database;
+  //   await _insertDefaultCategories(db);
+  // }
+
+  // FIXED: Proper balance calculation without double-counting
+  Future updateAccountBalance(int accountId) async {
     final db = await database;
 
+    // Get account details first
+    final accountResult = await db.query(
+      'accounts',
+      where: 'id = ?',
+      whereArgs: [accountId],
+    );
+    if (accountResult.isEmpty) return;
+
+    final account = Account.fromMap(accountResult.first);
+
+    // Get transaction totals
     final incomeResult = await db.rawQuery(
       'SELECT COALESCE(SUM(amount), 0) as totalIncome FROM transactions WHERE accountId = ? AND type = ?',
       [accountId, 'income'],
@@ -207,17 +226,43 @@ class DatabaseHelper {
     final totalExpense = (expenseResult.first['totalExpense'] as num)
         .toDouble();
 
-    final newBalance = totalIncome - totalExpense;
+    if (account.subType == AccountSubType.creditCard) {
+      // CREDIT CARD LOGIC: Outstanding = Total Expenses - Total Payments
+      print('🔍 CREDIT CARD BALANCE UPDATE for account $accountId');
+      print('💸 Total expenses from transactions: $totalExpense');
+      print('💰 Total payments from transactions: $totalIncome');
 
-    await db.update(
-      'accounts',
-      {
-        'balance': newBalance,
-        'updatedAt': DateTime.now().millisecondsSinceEpoch,
-      },
-      where: 'id = ?',
-      whereArgs: [accountId],
-    );
+      // Simple approach: Outstanding = All expenses - All payments
+      final newOutstanding = totalExpense - totalIncome;
+
+      print('🧮 Calculation: $totalExpense - $totalIncome = $newOutstanding');
+
+      await db.update(
+        'accounts',
+        {
+          'balance': 0.0,
+          'outstandingAmount': newOutstanding,
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [accountId],
+      );
+
+      print('✅ Credit card outstanding updated to: $newOutstanding');
+    } else {
+      // Regular accounts: balance = income - expenses
+      final newBalance = totalIncome - totalExpense;
+
+      await db.update(
+        'accounts',
+        {
+          'balance': newBalance,
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [accountId],
+      );
+    }
   }
 
   // ENHANCED: Smart account update with user confirmation for balance adjustment
@@ -270,34 +315,87 @@ class DatabaseHelper {
     }
   }
 
-  // Account operations
+  // FIXED: Proper account insertion without double-counting
   Future<int> insertAccount(Account account) async {
-    final db = await database;
-    final id = await db.insert('accounts', account.toMap());
+    print('🔍 DatabaseHelper.insertAccount called for: ${account.name}');
+    try {
+      final db = await database;
+      final accountMap = account.toMap();
+      print('📄 Account map: $accountMap');
 
-    if (account.balance > 0) {
-      final categories = await getCategories();
-      final incomeCategory = categories.firstWhere(
-        (cat) => cat.type == CategoryType.income,
-        orElse: () => categories.first,
+      final id = await db.insert('accounts', accountMap);
+      print('✅ Account inserted successfully with id: $id');
+
+      // Create initial transaction timestamp slightly in the past to ensure proper ordering
+      final initialTransactionTime = DateTime.now().subtract(
+        const Duration(seconds: 1),
       );
 
-      final initialTransaction = AppTransaction.Transaction(
-        title: 'Initial Balance',
-        amount: account.balance,
-        date: DateTime.now(),
-        time: DateTime.now(),
-        type: TransactionType.income,
-        accountId: id,
-        categoryId: incomeCategory.id!,
-        notes: 'Initial account balance',
-      );
+      if (account.subType == AccountSubType.creditCard) {
+        // Credit cards: Create initial transaction for outstanding amount if any
+        final initialOutstanding = account.outstandingAmount ?? 0.0;
+        print('💳 Credit card created with outstanding: $initialOutstanding');
 
-      await db.insert('transactions', initialTransaction.toMap());
-      await updateAccountBalance(id);
+        if (initialOutstanding > 0) {
+          // Create an initial expense transaction to represent the outstanding amount
+          final categories = await getCategories();
+          final expenseCategory = categories.firstWhere(
+            (cat) => cat.type == CategoryType.expense,
+            orElse: () => categories.first,
+          );
+
+          final initialTransaction = AppTransaction.Transaction(
+            title: 'Initial Outstanding',
+            amount: initialOutstanding,
+            date: initialTransactionTime,
+            time: initialTransactionTime,
+            type: TransactionType.expense,
+            accountId: id,
+            categoryId: expenseCategory.id!,
+            notes: 'Initial credit card outstanding amount',
+          );
+
+          await db.insert('transactions', initialTransaction.toMap());
+          print(
+            '💳 Initial outstanding transaction created: ₹$initialOutstanding',
+          );
+        }
+      } else if (account.balance != 0) {
+        // Regular accounts: create initial balance transaction only if balance is non-zero
+        print('💰 Creating initial balance transaction for regular account...');
+        final categories = await getCategories();
+        final category = categories.firstWhere(
+          (cat) =>
+              cat.type ==
+              (account.balance > 0
+                  ? CategoryType.income
+                  : CategoryType.expense),
+          orElse: () => categories.first,
+        );
+
+        final initialTransaction = AppTransaction.Transaction(
+          title: 'Initial Balance',
+          amount: account.balance.abs(),
+          date: initialTransactionTime,
+          time: initialTransactionTime,
+          type: account.balance > 0
+              ? TransactionType.income
+              : TransactionType.expense,
+          accountId: id,
+          categoryId: category.id!,
+          notes: 'Initial account balance',
+        );
+
+        await db.insert('transactions', initialTransaction.toMap());
+        print('💳 Initial transaction created');
+        // No need to call updateAccountBalance here as the transaction will match the initial balance
+      }
+
+      return id;
+    } catch (e) {
+      print('❌ Error inserting account ${account.name}: $e');
+      rethrow;
     }
-
-    return id;
   }
 
   Future<List<Account>> getAccounts() async {
@@ -306,13 +404,16 @@ class DatabaseHelper {
       'accounts',
       where: 'isActive = ?',
       whereArgs: [1],
+      orderBy: 'CASE WHEN type = "asset" THEN 1 ELSE 2 END, createdAt ASC',
     );
     return List.generate(maps.length, (i) => Account.fromMap(maps[i]));
   }
 
   Future<void> deleteAccount(int id) async {
     final db = await database;
+    // Delete all transactions for this account
     await db.delete('transactions', where: 'accountId = ?', whereArgs: [id]);
+    // Deactivate the account
     await db.update(
       'accounts',
       {'isActive': 0},
@@ -370,7 +471,7 @@ class DatabaseHelper {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'transactions',
-      orderBy: 'date DESC, time DESC',
+      orderBy: 'date DESC, time DESC, createdAt DESC',
     );
     return List.generate(
       maps.length,
@@ -380,13 +481,36 @@ class DatabaseHelper {
 
   Future<void> updateTransaction(AppTransaction.Transaction transaction) async {
     final db = await database;
-    await db.update(
+
+    // Get the old transaction to update the old account balance
+    final oldTransactionResult = await db.query(
       'transactions',
-      transaction.toMap(),
       where: 'id = ?',
       whereArgs: [transaction.id],
     );
-    await updateAccountBalance(transaction.accountId);
+
+    if (oldTransactionResult.isNotEmpty) {
+      final oldTransaction = AppTransaction.Transaction.fromMap(
+        oldTransactionResult.first,
+      );
+      final oldAccountId = oldTransaction.accountId;
+
+      // Update the transaction
+      await db.update(
+        'transactions',
+        transaction.toMap(),
+        where: 'id = ?',
+        whereArgs: [transaction.id],
+      );
+
+      // Update both old and new account balances if they're different
+      if (oldAccountId != transaction.accountId) {
+        await updateAccountBalance(oldAccountId); // Update old account
+        await updateAccountBalance(transaction.accountId); // Update new account
+      } else {
+        await updateAccountBalance(transaction.accountId); // Same account
+      }
+    }
   }
 
   Future<void> deleteTransaction(int id) async {
@@ -406,5 +530,11 @@ class DatabaseHelper {
   Future<void> closeDatabase() async {
     final db = await database;
     await db.close();
+  }
+
+  // PUBLIC: Recreate default categories (for sample data service)
+  Future<void> recreateDefaultCategories() async {
+    final db = await database;
+    await _insertDefaultCategories(db);
   }
 }

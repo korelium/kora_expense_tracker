@@ -11,7 +11,6 @@ import 'add_transaction_screen.dart';
 import 'transactions_list_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/forms/add_edit_account_screen.dart';
-import '../widgets/enhanced_transaction_tile.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -34,9 +33,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // DOUBLE BACK PRESS VARIABLES
   DateTime? _lastBackPressed;
 
-  // Track which cards have already shown utilization warnings this session
-  final Set<int> _shownUtilizationWarnings = <int>{};
-
   @override
   void initState() {
     super.initState();
@@ -53,26 +49,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       print('📂 Dashboard loaded ${categories.length} categories');
 
       _calculateTotals(transactions, accounts);
-      if (mounted) {
-        setState(() {
-          _transactions = transactions;
-          _accounts = accounts;
-          _categories = categories;
-          _isLoading = false;
-        });
+      setState(() {
+        _transactions = transactions;
+        _accounts = accounts;
+        _categories = categories;
+        _isLoading = false;
+      });
 
-        // Show credit utilization alerts after loading
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _showCreditUtilizationAlerts();
-          }
-        });
-      }
+      // Show credit utilization alerts after loading
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showCreditUtilizationAlerts();
+      });
     } catch (e) {
       print('Error loading data: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _isLoading = false);
     }
   }
 
@@ -122,12 +112,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onNavItemTapped(int index) {
-    if (mounted) {
-      setState(() => _selectedIndex = index);
-      // Refresh data when switching to dashboard or accounts tab
-      if (index == 0 || index == 2) {
-        _loadData();
-      }
+    setState(() => _selectedIndex = index);
+    // Refresh data when switching to accounts tab
+    if (index == 2) {
+      _loadData();
     }
   }
 
@@ -137,14 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 0:
         return _buildDashboardContent();
       case 1:
-        return TransactionsListScreen(
-          onTransactionChanged: () {
-            // Refresh dashboard data when transactions change
-            if (mounted) {
-              _loadData();
-            }
-          },
-        );
+        return const TransactionsListScreen();
       case 2:
         return AccountsScreen(onAccountChanged: _loadData);
       case 3:
@@ -190,21 +171,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
 
-    if (result == true && mounted) {
+    if (result == true) {
       await _loadData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Text('${transaction.title} updated successfully'),
-            ],
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('${transaction.title} updated successfully'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
           ),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+        );
+      }
     }
   }
 
@@ -234,7 +217,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (confirmed == true) {
       try {
         await _dbHelper.deleteTransaction(transaction.id!);
-        await _loadData();
+        _loadData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -254,80 +237,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // NEW: Credit utilization alert system for dashboard
   void _showCreditUtilizationAlerts() {
-    if (!mounted) return;
     final creditCards = _accounts
         .where((account) => account.subType == AccountSubType.creditCard)
         .toList();
+
     for (final card in creditCards) {
       if (card.creditLimit != null && card.outstandingAmount != null) {
         final utilization = card.outstandingAmount! / card.creditLimit!;
 
-        // Only show warning if we haven't shown it for this card this session
-        if (!_shownUtilizationWarnings.contains(card.id)) {
-          if (utilization > 0.6) {
-            _shownUtilizationWarnings.add(card.id!); // Mark as shown
-            // HIGH USAGE ALERT
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.warning, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'HIGH USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+        if (utilization > 0.6) {
+          // HIGH USAGE ALERT
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.warning, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'HIGH USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                  ],
-                ),
-                backgroundColor: Colors.red[700],
-                duration: const Duration(seconds: 4),
-                action: SnackBarAction(
-                  label: 'View',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    if (mounted) {
-                      setState(
-                        () => _selectedIndex = 2,
-                      ); // Switch to accounts tab
-                    }
-                  },
-                ),
+                  ),
+                ],
               ),
-            );
-          } else if (utilization > 0.3) {
-            _shownUtilizationWarnings.add(card.id!); // Mark as shown
-            // MODERATE USAGE ALERT
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.info, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'MODERATE USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
-                      ),
+              backgroundColor: Colors.red[700],
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  setState(() => _selectedIndex = 2); // Switch to accounts tab
+                },
+              ),
+            ),
+          );
+        } else if (utilization > 0.3) {
+          // MODERATE USAGE ALERT
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.info, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'MODERATE USAGE: ${card.name} utilization at ${(utilization * 100).toStringAsFixed(1)}%',
                     ),
-                  ],
-                ),
-                backgroundColor: Colors.orange[700],
-                duration: const Duration(seconds: 3),
-                action: SnackBarAction(
-                  label: 'View',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    if (mounted) {
-                      setState(
-                        () => _selectedIndex = 2,
-                      ); // Switch to accounts tab
-                    }
-                  },
-                ),
+                  ),
+                ],
               ),
-            );
-          }
+              backgroundColor: Colors.orange[700],
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  setState(() => _selectedIndex = 2); // Switch to accounts tab
+                },
+              ),
+            ),
+          );
         }
       }
     }
@@ -346,15 +316,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return true;
     } else {
       _lastBackPressed = now;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Press back again to exit'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Color(0xFF1A237E),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Press back again to exit'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF1A237E),
+        ),
+      );
       return false;
     }
   }
@@ -366,18 +334,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onPopInvoked: (bool didPop) async {
         if (!didPop) {
           if (_selectedIndex != 0) {
-            // If not on dashboard, go back to dashboard and refresh
-            if (mounted) {
-              setState(() => _selectedIndex = 0);
-              // Refresh data when returning to dashboard
-              _loadData();
-            }
+            // If not on dashboard, go back to dashboard
+            setState(() => _selectedIndex = 0);
           } else {
             // If on dashboard, show exit confirmation
             await _onWillPop();
           }
         }
       },
+
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Kora Expense Tracker'),
@@ -415,12 +380,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const AddEditAccountScreen(),
+                      builder: (context) =>
+                          AddEditAccountScreen(onAccountChanged: _loadData),
                     ),
                   );
                   if (mounted && result == true) {
                     await _loadData();
-                    // Success message is handled by AddEditAccountScreen
+                    // Don't show duplicate message - AddEditAccountScreen already shows one
                   }
                 },
                 backgroundColor: const Color(0xFF1A237E),
@@ -819,11 +785,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () {
-                    if (mounted) {
-                      setState(() => _selectedIndex = 2);
-                    }
-                  },
+                  onPressed: () => setState(() => _selectedIndex = 2),
                   icon: const Icon(Icons.account_balance_wallet, size: 16),
                   label: const Text('View Accounts'),
                   style: TextButton.styleFrom(
@@ -860,11 +822,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             if (_transactions.isNotEmpty)
               TextButton(
-                onPressed: () {
-                  if (mounted) {
-                    setState(() => _selectedIndex = 1);
-                  }
-                },
+                onPressed: () => setState(() => _selectedIndex = 1),
                 child: const Text(
                   'View All',
                   style: TextStyle(color: Color(0xFF1A237E)),
@@ -878,28 +836,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(40),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.grey[50]!, Colors.grey[100]!],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.grey[200]!),
             ),
             child: Column(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.receipt_long,
-                    size: 48,
-                    color: Colors.grey[600],
-                  ),
-                ),
+                Icon(Icons.receipt_long, size: 64, color: Colors.grey[400]),
                 const SizedBox(height: 16),
                 Text(
                   'No transactions yet',
@@ -919,26 +862,115 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           )
         else
-          // Beautiful transaction list with enhanced tiles
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: recentTransactions.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final transaction = recentTransactions[index];
-              return EnhancedTransactionTile(
-                key: ValueKey('transaction_${transaction.id}'),
-                transaction: transaction,
-                categories: _categories,
-                accounts: _accounts,
-                onEdit: _editTransactionFromDashboard,
-                onDelete: _deleteTransactionFromDashboard,
-                isCompact: true, // Compact mode for dashboard
-              );
-            },
+          ...recentTransactions.map(
+            (transaction) => _buildTransactionTile(transaction),
           ),
       ],
+    );
+  }
+
+  Widget _buildTransactionTile(Transaction transaction) {
+    final category = _categories.firstWhere(
+      (cat) => cat.id == transaction.categoryId,
+      orElse: () =>
+          Category(name: 'Unknown', type: CategoryType.expense, icon: '❓'),
+    );
+    final account = _accounts.firstWhere(
+      (acc) => acc.id == transaction.accountId,
+      orElse: () => Account(
+        name: 'Unknown',
+        type: AccountType.asset,
+        subType: AccountSubType.cash,
+        balance: 0,
+        currency: 'INR',
+      ),
+    );
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _editTransactionFromDashboard(transaction),
+          onLongPress: () => _deleteTransactionFromDashboard(transaction),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Color(
+                      int.parse(category.color.replaceAll('#', '0xFF')),
+                    ).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(
+                      category.icon,
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        transaction.title,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${category.name} • ${account.name}',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        DateFormat('MMM dd, yyyy').format(transaction.date),
+                        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        (transaction.type == TransactionType.income
+                                ? const Color(0xFF2E7D32)
+                                : const Color(0xFFD32F2F))
+                            .withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${transaction.type == TransactionType.income ? '+' : '-'}₹${NumberFormat('#,##,###.##').format(transaction.amount)}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: transaction.type == TransactionType.income
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFFD32F2F),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

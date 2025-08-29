@@ -109,7 +109,15 @@ class Account {
   }) : createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
 
-  // Convert Account to Map for database operations
+  // NEW: Equality and hashCode overrides
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Account && runtimeType == other.runtimeType && id == other.id;
+
+  @override
+  int get hashCode => id.hashCode ?? 0; // Handle null id safely
+
   // Convert Account to Map for database operations
   Map<String, dynamic> toMap() {
     return {
@@ -130,7 +138,6 @@ class Account {
     };
   }
 
-  // Create Account from Map (from database)
   // Create Account from Map (from database)
   factory Account.fromMap(Map<String, dynamic> map) {
     return Account(
@@ -155,7 +162,6 @@ class Account {
     );
   }
 
-  // Create a copy with updated values
   // Create a copy with updated values
   Account copyWith({
     String? name,

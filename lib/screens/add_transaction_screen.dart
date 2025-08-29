@@ -5,19 +5,23 @@ import '../models/account.dart';
 import '../models/category.dart';
 import '../models/enums.dart';
 import '../models/transaction.dart';
-import 'accounts_screen.dart';
+import '../widgets/forms/add_edit_account_screen.dart'; // imported after the refactorting the app
 import 'categories_screen.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   final List<Account> accounts;
   final List<Category> categories;
-  final Transaction? transaction; // NEW: For editing existing transactions
+  final Transaction? transaction; // For editing existing transactions
+  final Account? selectedAccount; // Pre-selected account
+  final String? initialTransactionType; // Pre-selected transaction type
 
   const AddTransactionScreen({
     super.key,
     required this.accounts,
     required this.categories,
-    this.transaction, // NEW: Transaction to edit
+    this.transaction,
+    this.selectedAccount,
+    this.initialTransactionType,
   });
 
   @override
@@ -40,6 +44,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   // FORM VARIABLES
   TransactionType _selectedType = TransactionType.expense;
   Account? _selectedAccount;
+  Account? _selectedToAccount; // For transfers
   Category? _selectedCategory;
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
@@ -58,6 +63,50 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     } else {
       _initializeForNewTransaction();
     }
+    // Validate selections after initialization
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _validateSelections();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh accounts and categories when dependencies change
+    _refreshData();
+  }
+
+  Future<void> _refreshData() async {
+    try {
+      final accounts = await _dbHelper.getAccounts();
+      final categories = await _dbHelper.getCategories();
+      if (!mounted) return;
+      setState(() {
+        _accounts = accounts;
+        _categories = categories;
+      });
+      // Re-initialize if no account/category was selected
+      if (_selectedAccount == null && _accounts.isNotEmpty) {
+        _selectedAccount = _accounts.first;
+      }
+      if (_selectedCategory == null && _categories.isNotEmpty) {
+        _selectedCategory = _categories.firstWhere(
+          (cat) => cat.type == CategoryType.expense,
+          orElse: () => _categories.first,
+        );
+      }
+      // Validate current selections are still in the updated lists
+      if (_selectedAccount != null &&
+          !_accounts.any((acc) => acc.id == _selectedAccount!.id)) {
+        _selectedAccount = _accounts.isNotEmpty ? _accounts.first : null;
+      }
+      if (_selectedCategory != null &&
+          !_categories.any((cat) => cat.id == _selectedCategory!.id)) {
+        _selectedCategory = _categories.isNotEmpty ? _categories.first : null;
+      }
+    } catch (e) {
+      // Handle error silently
+    }
   }
 
   void _populateFieldsForEditing() {
@@ -68,25 +117,58 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     _selectedType = transaction.type;
     _selectedDate = transaction.date;
     _selectedTime = TimeOfDay.fromDateTime(transaction.time);
-    _selectedAccount = _accounts.firstWhere(
-      (acc) => acc.id == transaction.accountId,
-      orElse: () => _accounts.first,
-    );
-    _selectedCategory = _categories.firstWhere(
-      (cat) => cat.id == transaction.categoryId,
-      orElse: () => _categories.first,
-    );
+    _selectedAccount = _accounts.isNotEmpty
+        ? _accounts.firstWhere(
+            (acc) => acc.id == transaction.accountId,
+            orElse: () => _accounts.first,
+          )
+        : null;
+    _selectedCategory = _categories.isNotEmpty
+        ? _categories.firstWhere(
+            (cat) => cat.id == transaction.categoryId,
+            orElse: () => _categories.first,
+          )
+        : null;
   }
 
   void _initializeForNewTransaction() {
-    if (_accounts.isNotEmpty) {
+    // Set pre-selected account if provided
+    if (widget.selectedAccount != null && 
+        _accounts.any((acc) => acc.id == widget.selectedAccount!.id)) {
+      _selectedAccount = widget.selectedAccount;
+    } else if (_accounts.isNotEmpty) {
       _selectedAccount = _accounts.first;
     }
-    if (_categories.isNotEmpty) {
-      _selectedCategory = _categories.firstWhere(
-        (cat) => cat.type == CategoryType.expense,
-        orElse: () => _categories.first,
-      );
+
+    // Set initial transaction type if provided
+    if (widget.initialTransactionType != null) {
+      switch (widget.initialTransactionType!.toLowerCase()) {
+        case 'income':
+          _selectedType = TransactionType.income;
+          break;
+        case 'expense':
+          _selectedType = TransactionType.expense;
+          break;
+        case 'transfer':
+          _selectedType = TransactionType.transfer;
+          break;
+      }
+    }
+
+    // NO DEFAULT CATEGORY - User must select manually
+    _selectedCategory = null;
+  }
+
+  void _validateSelections() {
+    // Ensure selected account is still valid
+    if (_selectedAccount != null &&
+        !_accounts.any((acc) => acc.id == _selectedAccount!.id)) {
+      _selectedAccount = _accounts.isNotEmpty ? _accounts.first : null;
+    }
+    // Ensure selected category is still valid
+    if (_selectedCategory != null &&
+        !_categories.any((cat) => cat.id == _selectedCategory!.id)) {
+      _selectedCategory = _categories.isNotEmpty ? _categories.first : null;
     }
   }
 
@@ -109,9 +191,23 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       _showError('Please select or add an account first');
       return;
     }
-    if (_selectedCategory == null) {
-      _showError('Please select or add a category first');
-      return;
+
+    // For transfers, check if destination account is selected
+    if (_selectedType == TransactionType.transfer) {
+      if (_selectedToAccount == null) {
+        _showError('Please select destination account for transfer');
+        return;
+      }
+      if (_selectedAccount!.id == _selectedToAccount!.id) {
+        _showError('Source and destination accounts cannot be the same');
+        return;
+      }
+    } else {
+      // For income/expense, check if category is selected
+      if (_selectedCategory == null) {
+        _showError('Please select or add a category');
+        return;
+      }
     }
 
     setState(() => _isLoading = true);
@@ -124,40 +220,97 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _selectedTime.minute,
       );
 
-      final transaction = Transaction(
-        id: widget.transaction?.id, // null for new, existing id for edit
-        title: _titleController.text.trim(),
-        amount: double.parse(_amountController.text.trim()),
-        date: _selectedDate,
-        time: combinedDateTime,
-        type: _selectedType,
-        accountId: _selectedAccount!.id!,
-        categoryId: _selectedCategory!.id!,
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-      );
+      final amount = double.parse(_amountController.text.trim());
+      final title = _titleController.text.trim();
+      final notes = _notesController.text.trim().isEmpty
+          ? null
+          : _notesController.text.trim();
 
-      if (widget.transaction == null) {
-        await _dbHelper.insertTransaction(transaction);
-      } else {
-        await _dbHelper.updateTransaction(transaction);
-      }
+      if (_selectedType == TransactionType.transfer) {
+        // Handle transfer: create two transactions
+        // Get or create a transfer category
+        final transferCategory = await _getOrCreateTransferCategory();
 
-      if (mounted) {
-        Navigator.pop(context, true); // Return true to indicate success
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.transaction == null
-                  ? 'Transaction added successfully!'
-                  : 'Transaction updated successfully!',
-            ),
-            backgroundColor: _selectedType == TransactionType.income
-                ? const Color(0xFF2E7D32)
-                : const Color(0xFFD32F2F),
-          ),
+        // Create outgoing transaction (expense from source account)
+        final outgoingTransaction = Transaction(
+          title: 'Transfer to ${_selectedToAccount!.name}',
+          amount: amount,
+          date: _selectedDate,
+          time: combinedDateTime,
+          type: TransactionType.expense,
+          accountId: _selectedAccount!.id!,
+          categoryId: transferCategory.id!,
+          notes: notes,
         );
+
+        // Create incoming transaction (income to destination account)
+        final incomingTransaction = Transaction(
+          title: 'Transfer from ${_selectedAccount!.name}',
+          amount: amount,
+          date: _selectedDate,
+          time: combinedDateTime,
+          type: TransactionType.income,
+          accountId: _selectedToAccount!.id!,
+          categoryId: transferCategory.id!,
+          notes: notes,
+        );
+
+        // Insert both transactions
+        await _dbHelper.insertTransaction(outgoingTransaction);
+        await _dbHelper.insertTransaction(incomingTransaction);
+
+        // Update both account balances
+        await _dbHelper.updateAccountBalance(_selectedAccount!.id!);
+        await _dbHelper.updateAccountBalance(_selectedToAccount!.id!);
+
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Transfer of ₹${NumberFormat('#,###').format(amount)} completed successfully!',
+              ),
+              backgroundColor: const Color(0xFF1565C0),
+            ),
+          );
+        }
+      } else {
+        // Handle regular income/expense transaction
+        final transaction = Transaction(
+          id: widget.transaction?.id,
+          title: title,
+          amount: amount,
+          date: _selectedDate,
+          time: combinedDateTime,
+          type: _selectedType,
+          accountId: _selectedAccount!.id!,
+          categoryId: _selectedCategory!.id!,
+          notes: notes,
+        );
+
+        if (widget.transaction == null) {
+          await _dbHelper.insertTransaction(transaction);
+          await _dbHelper.updateAccountBalance(_selectedAccount!.id!);
+        } else {
+          await _dbHelper.updateTransaction(transaction);
+          await _dbHelper.updateAccountBalance(_selectedAccount!.id!);
+        }
+
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                widget.transaction == null
+                    ? 'Transaction added successfully!'
+                    : 'Transaction updated successfully!',
+              ),
+              backgroundColor: _selectedType == TransactionType.income
+                  ? const Color(0xFF2E7D32)
+                  : const Color(0xFFD32F2F),
+            ),
+          );
+        }
       }
     } catch (e) {
       _showError('Error saving transaction: $e');
@@ -166,6 +319,28 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  // Helper method to get or create a transfer category
+  Future<Category> _getOrCreateTransferCategory() async {
+    // Try to find existing transfer category
+    final existingCategory = _categories.firstWhere(
+      (cat) => cat.name.toLowerCase().contains('transfer'),
+      orElse: () => Category(
+        name: 'Transfer',
+        type: CategoryType.expense, // Default type
+        icon: '🔄',
+        color: '#1565C0',
+      ),
+    );
+
+    // If category doesn't exist in database, create it
+    if (existingCategory.id == null) {
+      final categoryId = await _dbHelper.insertCategory(existingCategory);
+      return existingCategory.copyWith(id: categoryId);
+    }
+
+    return existingCategory;
   }
 
   void _showError(String message) {
@@ -193,7 +368,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         );
       },
     );
-    if (date != null) {
+    if (date != null && mounted) {
       setState(() => _selectedDate = date);
     }
   }
@@ -213,8 +388,19 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         );
       },
     );
-    if (time != null) {
+    if (time != null && mounted) {
       setState(() => _selectedTime = time);
+    }
+  }
+
+  // to show the credit card balence 0 without - sysmbol
+  String _formatCreditCardBalance(double outstandingAmount) {
+    if (outstandingAmount == 0) {
+      return '₹0'; // No minus for zero balance
+    } else if (outstandingAmount > 0) {
+      return '-₹${NumberFormat('#,###').format(outstandingAmount)}'; // Show debt as negative
+    } else {
+      return '₹${NumberFormat('#,###').format(outstandingAmount.abs())}'; // Show credit as positive
     }
   }
 
@@ -229,17 +415,41 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   Future<void> _addNewAccount() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const AddEditAccountScreen()),
+      MaterialPageRoute(
+        builder: (context) => const AddEditAccountScreen(),
+      ),
     );
+    
     if (result == true) {
-      // Refresh accounts list
+      // Refresh accounts list immediately
       final newAccounts = await _dbHelper.getAccounts();
+      if (!mounted) return;
+      
       setState(() {
         _accounts = newAccounts;
-        if (_selectedAccount == null && _accounts.isNotEmpty) {
-          _selectedAccount = _accounts.last; // Select the newly added account
+        // Select the newly added account (last in the list)
+        if (_accounts.isNotEmpty) {
+          _selectedAccount = _accounts.last;
         }
       });
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Account added! Selected: ${_selectedAccount?.name ?? 'New Account'}'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
@@ -258,6 +468,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     if (result == true) {
       // Refresh categories list
       final newCategories = await _dbHelper.getCategories();
+      if (!mounted) return;
       setState(() {
         _categories = newCategories;
         final filtered = _filteredCategories;
@@ -271,6 +482,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.transaction != null;
+
+    // Ensure we have valid selections before building
+    if (_accounts.isNotEmpty &&
+        (_selectedAccount == null ||
+            !_accounts.any((acc) => acc.id == _selectedAccount!.id))) {
+      _selectedAccount = _accounts.first;
+    }
+
+    final filteredCategories = _filteredCategories;
+    // NO AUTO-SELECTION - User must choose category manually
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
@@ -313,7 +535,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // TRANSACTION TYPE TOGGLE
+              // TRANSACTION TYPE TOGGLE WITH TRANSFER
               Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -341,6 +563,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             _selectedCategory = _filteredCategories.isNotEmpty
                                 ? _filteredCategories.first
                                 : null;
+                            _selectedToAccount = null; // Reset transfer account
                           });
                         },
                         child: AnimatedContainer(
@@ -379,9 +602,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                 color: _selectedType == TransactionType.income
                                     ? Colors.white
                                     : const Color(0xFF2E7D32),
-                                size: 22,
+                                size: 20,
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 8),
                               Text(
                                 'Income',
                                 style: TextStyle(
@@ -389,7 +612,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                       ? Colors.white
                                       : const Color(0xFF2E7D32),
                                   fontWeight: FontWeight.w700,
-                                  fontSize: 16,
+                                  fontSize: 14,
                                 ),
                               ),
                             ],
@@ -405,6 +628,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             _selectedCategory = _filteredCategories.isNotEmpty
                                 ? _filteredCategories.first
                                 : null;
+                            _selectedToAccount = null; // Reset transfer account
                           });
                         },
                         child: AnimatedContainer(
@@ -443,9 +667,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                 color: _selectedType == TransactionType.expense
                                     ? Colors.white
                                     : const Color(0xFFD32F2F),
-                                size: 22,
+                                size: 20,
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 8),
                               Text(
                                 'Expense',
                                 style: TextStyle(
@@ -454,7 +678,71 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                       ? Colors.white
                                       : const Color(0xFFD32F2F),
                                   fontWeight: FontWeight.w700,
-                                  fontSize: 16,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedType = TransactionType.transfer;
+                            _selectedCategory =
+                                null; // No category for transfers
+                          });
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          decoration: BoxDecoration(
+                            gradient: _selectedType == TransactionType.transfer
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFF1565C0),
+                                      Color(0xFF42A5F5),
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  )
+                                : null,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: _selectedType == TransactionType.transfer
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF1565C0,
+                                      ).withOpacity(0.3),
+                                      spreadRadius: 2,
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.swap_horiz,
+                                color: _selectedType == TransactionType.transfer
+                                    ? Colors.white
+                                    : const Color(0xFF1565C0),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Transfer',
+                                style: TextStyle(
+                                  color:
+                                      _selectedType == TransactionType.transfer
+                                      ? Colors.white
+                                      : const Color(0xFF1565C0),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
                                 ),
                               ),
                             ],
@@ -512,8 +800,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               // ACCOUNT DROPDOWN WITH ADD OPTION
               _buildAccountSelector(),
               const SizedBox(height: 24),
-              // CATEGORY DROPDOWN WITH ADD OPTION
-              _buildCategorySelector(),
+              // TO ACCOUNT SELECTOR (FOR TRANSFERS)
+              if (_selectedType == TransactionType.transfer) ...[
+                _buildToAccountSelector(),
+                const SizedBox(height: 24),
+              ],
+              // CATEGORY DROPDOWN WITH ADD OPTION (SKIP FOR TRANSFERS)
+              if (_selectedType != TransactionType.transfer) ...[
+                _buildCategorySelector(),
+                const SizedBox(height: 24),
+              ],
               const SizedBox(height: 24),
               // DATE AND TIME SELECTORS
               Row(
@@ -649,6 +945,42 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   // FIXED ACCOUNT SELECTOR
   Widget _buildAccountSelector() {
+    // Build-safe current selection (no setState here)
+    final hasValidAccount =
+        _selectedAccount != null &&
+        _accounts.any((acc) => acc.id == _selectedAccount!.id);
+    final currentAccount = hasValidAccount
+        ? _selectedAccount
+        : (_accounts.isNotEmpty ? _accounts.first : null);
+
+    // Don't render dropdown if no valid selection
+    if (currentAccount == null || _accounts.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.account_balance_wallet,
+              size: 48,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No accounts found',
+              style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: _addNewAccount,
+              icon: const Icon(Icons.add),
+              label: const Text('Add First Account'),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
@@ -662,102 +994,121 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           ),
         ],
       ),
-      child: _accounts.isEmpty
-          ? Container(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.account_balance_wallet,
-                    size: 48,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No accounts found',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: _addNewAccount,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add First Account'),
-                  ),
-                ],
-              ),
-            )
-          : DropdownButtonFormField<Account>(
-              initialValue: _selectedAccount,
-              focusNode: _accountFocusNode,
-              decoration: InputDecoration(
-                labelText: 'Account',
-                prefixIcon: const Icon(
-                  Icons.account_balance_wallet,
-                  color: Color(0xFF1A237E),
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(
-                    Icons.add_circle_outline,
-                    color: Color(0xFF1A237E),
-                  ),
-                  onPressed: _addNewAccount,
-                  tooltip: 'Add New Account',
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Colors.grey[50],
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-              ),
-              items: _accounts.map((account) {
-                return DropdownMenuItem<Account>(
-                  value: account,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _getAccountIcon(account.subType),
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          account.name,
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '₹${NumberFormat('#,###').format(account.balance)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: account.balance >= 0
-                              ? Colors.green[600]
-                              : Colors.red[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() => _selectedAccount = value);
-                if (value != null) {
-                  FocusScope.of(context).requestFocus(_categoryFocusNode);
-                }
-              },
+      child: DropdownButtonFormField<Account>(
+        initialValue: currentAccount,
+        focusNode: _accountFocusNode,
+        decoration: InputDecoration(
+          labelText: 'Account',
+          prefixIcon: const Icon(
+            Icons.account_balance_wallet,
+            color: Color(0xFF1A237E),
+          ),
+          suffixIcon: IconButton(
+            icon: const Icon(
+              Icons.add_circle_outline,
+              color: Color(0xFF1A237E),
             ),
+            onPressed: _addNewAccount,
+            tooltip: 'Add New Account',
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.grey[50],
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
+        ),
+        items: _accounts.map((account) {
+          return DropdownMenuItem<Account>(
+            value: account,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _getAccountIcon(account.subType),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    account.name,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  //here to change the trnsaction amount credit card balence
+                  account.subType == AccountSubType.creditCard
+                      ? _formatCreditCardBalance(account.outstandingAmount ?? 0)
+                      : '₹${NumberFormat('#,###').format(account.balance)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: account.subType == AccountSubType.creditCard
+                        ? (account.outstandingAmount ?? 0) > 0
+                              ? Colors.red[600] // Red if you owe money
+                              : Colors.green[600] // Green if no outstanding
+                        : account.balance >= 0
+                        ? Colors.green[600]
+                        : Colors.red[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+        onChanged: (value) {
+          if (!mounted) return;
+          setState(() => _selectedAccount = value);
+          if (value != null) {
+            FocusScope.of(context).requestFocus(_categoryFocusNode);
+          }
+        },
+      ),
     );
   }
 
   // FIXED CATEGORY SELECTOR (only one version)
   Widget _buildCategorySelector() {
     final filteredCategories = _filteredCategories;
+
+    // Build-safe current selection (no setState here)
+    final hasValidCategory =
+        _selectedCategory != null &&
+        filteredCategories.any((cat) => cat.id == _selectedCategory!.id);
+    final currentCategory = hasValidCategory
+        ? _selectedCategory
+        : (filteredCategories.isNotEmpty ? filteredCategories.first : null);
+
+    // Don't render dropdown if no valid selection
+    if (currentCategory == null || filteredCategories.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.category, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 12),
+            Text(
+              'No ${_selectedType == TransactionType.income ? 'income' : 'expense'} categories found',
+              style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: _addNewCategory,
+              icon: const Icon(Icons.add),
+              label: Text(
+                'Add ${_selectedType == TransactionType.income ? 'Income' : 'Expense'} Category',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
@@ -771,99 +1122,73 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           ),
         ],
       ),
-      child: filteredCategories.isEmpty
-          ? Container(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.category, size: 48, color: Colors.grey[400]),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No ${_selectedType == TransactionType.income ? 'income' : 'expense'} categories found',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-                    textAlign: TextAlign.center,
+      child: DropdownButtonFormField<Category>(
+        initialValue: currentCategory,
+        focusNode: _categoryFocusNode,
+        decoration: InputDecoration(
+          labelText: 'Category',
+          prefixIcon: const Icon(Icons.category, color: Color(0xFF1A237E)),
+          suffixIcon: IconButton(
+            icon: const Icon(
+              Icons.add_circle_outline,
+              color: Color(0xFF1A237E),
+            ),
+            onPressed: _addNewCategory,
+            tooltip: 'Add New Category',
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.grey[50],
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
+        ),
+        items: filteredCategories.map((category) {
+          return DropdownMenuItem<Category>(
+            value: category,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Color(
+                      int.parse(category.color.replaceAll('#', '0xFF')),
+                    ).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: _addNewCategory,
-                    icon: const Icon(Icons.add),
-                    label: Text(
-                      'Add ${_selectedType == TransactionType.income ? 'Income' : 'Expense'} Category',
+                  child: Center(
+                    child: Text(
+                      category.icon,
+                      style: const TextStyle(fontSize: 18),
                     ),
                   ),
-                ],
-              ),
-            )
-          : DropdownButtonFormField<Category>(
-              initialValue: _selectedCategory,
-              focusNode: _categoryFocusNode,
-              decoration: InputDecoration(
-                labelText: 'Category',
-                prefixIcon: const Icon(
-                  Icons.category,
-                  color: Color(0xFF1A237E),
                 ),
-                suffixIcon: IconButton(
-                  icon: const Icon(
-                    Icons.add_circle_outline,
-                    color: Color(0xFF1A237E),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    category.name,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  onPressed: _addNewCategory,
-                  tooltip: 'Add New Category',
                 ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Colors.grey[50],
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-              ),
-              items: filteredCategories.map((category) {
-                return DropdownMenuItem<Category>(
-                  value: category,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: Color(
-                            int.parse(category.color.replaceAll('#', '0xFF')),
-                          ).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Text(
-                            category.icon,
-                            style: const TextStyle(fontSize: 18),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          category.name,
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() => _selectedCategory = value);
-                if (value != null) {
-                  FocusScope.of(context).requestFocus(_notesFocusNode);
-                }
-              },
+              ],
             ),
+          );
+        }).toList(),
+        onChanged: (value) {
+          if (!mounted) return;
+          setState(() => _selectedCategory = value);
+          if (value != null) {
+            FocusScope.of(context).requestFocus(_notesFocusNode);
+          }
+        },
+      ),
     );
   }
 
@@ -963,6 +1288,134 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // TO ACCOUNT SELECTOR FOR TRANSFERS
+  Widget _buildToAccountSelector() {
+    // Filter out the selected "from" account
+    final availableAccounts = _accounts
+        .where((acc) => acc.id != _selectedAccount?.id)
+        .toList();
+
+    if (availableAccounts.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: Colors.orange[50],
+          border: Border.all(color: Colors.orange[200]!),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.warning, size: 48, color: Colors.orange[600]),
+            const SizedBox(height: 12),
+            Text(
+              'Need at least 2 accounts for transfers',
+              style: TextStyle(fontSize: 16, color: Colors.orange[700]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: _addNewAccount,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Another Account'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[600],
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.grey[50],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: DropdownButtonFormField<Account>(
+        initialValue: _selectedToAccount,
+        decoration: InputDecoration(
+          labelText: 'Transfer To Account',
+          prefixIcon: const Icon(Icons.call_received, color: Color(0xFF1565C0)),
+          suffixIcon: IconButton(
+            icon: const Icon(
+              Icons.add_circle_outline,
+              color: Color(0xFF1565C0),
+            ),
+            onPressed: _addNewAccount,
+            tooltip: 'Add New Account',
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.grey[50],
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
+        ),
+        hint: const Text('Select destination account'),
+        items: availableAccounts.map((account) {
+          return DropdownMenuItem<Account>(
+            value: account,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _getAccountIcon(account.subType),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    account.name,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  account.subType == AccountSubType.creditCard
+                      ? _formatCreditCardBalance(account.outstandingAmount ?? 0)
+                      : '₹${NumberFormat('#,###').format(account.balance)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: account.subType == AccountSubType.creditCard
+                        ? (account.outstandingAmount ?? 0) > 0
+                              ? Colors.red[600]
+                              : Colors.green[600]
+                        : account.balance >= 0
+                        ? Colors.green[600]
+                        : Colors.red[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+        onChanged: (value) {
+          if (!mounted) return;
+          setState(() => _selectedToAccount = value);
+        },
+        validator: (value) {
+          if (_selectedType == TransactionType.transfer && value == null) {
+            return 'Please select destination account';
+          }
+          return null;
+        },
       ),
     );
   }

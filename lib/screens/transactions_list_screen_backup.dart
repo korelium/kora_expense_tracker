@@ -1,19 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../models/transaction.dart';
 import '../models/account.dart';
 import '../models/category.dart';
 import '../models/enums.dart';
 import 'add_transaction_screen.dart';
-import '../widgets/enhanced_transaction_tile.dart';
 
 class TransactionsListScreen extends StatefulWidget {
-  final VoidCallback? onTransactionChanged;
-  
-  const TransactionsListScreen({
-    super.key,
-    this.onTransactionChanged,
-  });
+  const TransactionsListScreen({super.key});
 
   @override
   State<TransactionsListScreen> createState() => _TransactionsListScreenState();
@@ -109,22 +104,6 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
 
     if (result == true) {
       _loadData(); // Reload data if transaction was updated
-      widget.onTransactionChanged?.call(); // Notify dashboard
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 8),
-                Text('${transaction.title} updated successfully'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
     }
   }
 
@@ -191,7 +170,6 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       try {
         await _dbHelper.deleteTransaction(transaction.id!);
         _loadData();
-        widget.onTransactionChanged?.call(); // Notify dashboard
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -226,8 +204,8 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transactions'),
-        backgroundColor: const Color(0xFF1A237E),
-        foregroundColor: Colors.white,
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        foregroundColor: Theme.of(context).appBarTheme.foregroundColor,
         elevation: 0,
         actions: [
           IconButton(
@@ -240,12 +218,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                     categories: _categories,
                   ),
                 ),
-              ).then((result) {
-                _loadData();
-                if (result == true) {
-                  widget.onTransactionChanged?.call(); // Notify dashboard
-                }
-              });
+              ).then((_) => _loadData());
             },
             icon: const Icon(Icons.add),
             tooltip: 'Add Transaction',
@@ -254,119 +227,80 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       ),
 
       body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF1A237E)),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // ENHANCED SEARCH AND FILTER BAR
+                // SEARCH AND FILTER BAR
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.grey[50]!, Colors.white],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
+                    color: Colors.grey[50],
                     border: Border(
                       bottom: BorderSide(color: Colors.grey[200]!),
                     ),
                   ),
                   child: Column(
                     children: [
-                      // ENHANCED SEARCH BAR
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              spreadRadius: 0,
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: TextField(
-                          decoration: InputDecoration(
-                            hintText: 'Search transactions...',
-                            hintStyle: TextStyle(color: Colors.grey[500]),
-                            prefixIcon: Icon(
-                              Icons.search,
-                              color: Colors.grey[600],
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
+                      // SEARCH BAR
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search transactions...',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
                           ),
-                          onChanged: (value) {
-                            _searchQuery = value;
-                            _applyFilters();
-                          },
+                          filled: true,
+                          fillColor: Colors.white,
                         ),
+                        onChanged: (value) {
+                          _searchQuery = value;
+                          _applyFilters();
+                        },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
 
-                      // ENHANCED FILTER CHIPS
+                      // FILTER CHIPS
                       Row(
                         children: [
-                          _buildFilterChip(
-                            'All',
-                            _filterType == null,
-                            const Color(0xFF1A237E),
-                            () {
+                          FilterChip(
+                            label: const Text('All'),
+                            selected: _filterType == null,
+                            onSelected: (selected) {
                               setState(() => _filterType = null);
                               _applyFilters();
                             },
+                            selectedColor: const Color(
+                              0xFF1A237E,
+                            ).withOpacity(0.1),
+                            checkmarkColor: const Color(0xFF1A237E),
                           ),
                           const SizedBox(width: 8),
-                          _buildFilterChip(
-                            'Income',
-                            _filterType == TransactionType.income,
-                            const Color(0xFF2E7D32),
-                            () {
+                          FilterChip(
+                            label: const Text('Income'),
+                            selected: _filterType == TransactionType.income,
+                            selectedColor: Colors.green[100],
+                            checkmarkColor: Colors.green[700],
+                            onSelected: (selected) {
                               setState(
-                                () => _filterType =
-                                    _filterType == TransactionType.income
-                                    ? null
-                                    : TransactionType.income,
+                                () => _filterType = selected
+                                    ? TransactionType.income
+                                    : null,
                               );
                               _applyFilters();
                             },
                           ),
                           const SizedBox(width: 8),
-                          _buildFilterChip(
-                            'Expense',
-                            _filterType == TransactionType.expense,
-                            const Color(0xFFD32F2F),
-                            () {
+                          FilterChip(
+                            label: const Text('Expense'),
+                            selected: _filterType == TransactionType.expense,
+                            selectedColor: Colors.red[100],
+                            checkmarkColor: Colors.red[700],
+                            onSelected: (selected) {
                               setState(
-                                () => _filterType =
-                                    _filterType == TransactionType.expense
-                                    ? null
-                                    : TransactionType.expense,
-                              );
-                              _applyFilters();
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          _buildFilterChip(
-                            'Transfer',
-                            _filterType == TransactionType.transfer,
-                            const Color(0xFF1565C0),
-                            () {
-                              setState(
-                                () => _filterType =
-                                    _filterType == TransactionType.transfer
-                                    ? null
-                                    : TransactionType.transfer,
+                                () => _filterType = selected
+                                    ? TransactionType.expense
+                                    : null,
                               );
                               _applyFilters();
                             },
@@ -377,29 +311,18 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                   ),
                 ),
 
-                // TRANSACTIONS LIST WITH ENHANCED TILES
+                // TRANSACTIONS LIST
                 Expanded(
                   child: _filteredTransactions.isEmpty
                       ? _buildEmptyState()
                       : RefreshIndicator(
                           onRefresh: _loadData,
-                          color: const Color(0xFF1A237E),
-                          child: ListView.separated(
+                          child: ListView.builder(
                             padding: const EdgeInsets.all(16),
                             itemCount: _filteredTransactions.length,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(height: 8),
                             itemBuilder: (context, index) {
-                              final transaction = _filteredTransactions[index];
-                              return EnhancedTransactionTile(
-                                key: ValueKey('transaction_${transaction.id}'),
-                                transaction: transaction,
-                                categories: _categories,
-                                accounts: _accounts,
-                                onEdit: _editTransaction,
-                                onDelete: _deleteTransaction,
-                                isCompact:
-                                    false, // Full mode for transaction list
+                              return _buildTransactionTile(
+                                _filteredTransactions[index],
                               );
                             },
                           ),
@@ -418,65 +341,12 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                 categories: _categories,
               ),
             ),
-          ).then((result) {
-            _loadData();
-            if (result == true) {
-              widget.onTransactionChanged?.call(); // Notify dashboard
-            }
-          });
+          ).then((_) => _loadData());
         },
-        backgroundColor: const Color(0xFF1A237E),
+        backgroundColor: Theme.of(
+          context,
+        ).floatingActionButtonTheme.backgroundColor,
         child: const Icon(Icons.add, color: Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(
-    String label,
-    bool isSelected,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? color : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? color : Colors.grey[300]!,
-            width: 1.5,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: color.withOpacity(0.3),
-                    spreadRadius: 0,
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : [],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isSelected) ...[
-              Icon(Icons.check, size: 16, color: Colors.white),
-              const SizedBox(width: 4),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.grey[700],
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -486,23 +356,12 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.receipt_long_outlined,
-              size: 64,
-              color: Colors.grey[400],
-            ),
-          ),
-          const SizedBox(height: 24),
+          Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
           Text(
             'No transactions found',
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.w600,
               color: Colors.grey[700],
             ),
@@ -512,43 +371,123 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             _searchQuery.isNotEmpty || _filterType != null
                 ? 'Try adjusting your search or filters'
                 : 'Add your first transaction to get started',
-            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
-          const SizedBox(height: 24),
-          if (_searchQuery.isEmpty && _filterType == null)
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => AddTransactionScreen(
-                      accounts: _accounts,
-                      categories: _categories,
-                    ),
-                  ),
-                ).then((result) {
-                  _loadData();
-                  if (result == true) {
-                    widget.onTransactionChanged?.call(); // Notify dashboard
-                  }
-                });
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Add Transaction'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1A237E),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
+        ],
+      ),
+    );
+  }
+
+  // ENHANCED: Transaction tile with tap to edit and long press to delete
+  Widget _buildTransactionTile(Transaction transaction) {
+    final category = _categories.firstWhere(
+      (cat) => cat.id == transaction.categoryId,
+      orElse: () =>
+          Category(name: 'Unknown', type: CategoryType.expense, icon: '❓'),
+    );
+
+    final account = _accounts.firstWhere(
+      (acc) => acc.id == transaction.accountId,
+      orElse: () => Account(
+        name: 'Unknown',
+        type: AccountType.asset,
+        subType: AccountSubType.cash,
+        balance: 0,
+        currency: 'INR',
+      ),
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(16),
+        leading: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Color(
+              int.parse(category.color.replaceAll('#', '0xFF')),
+            ).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(category.icon, style: const TextStyle(fontSize: 20)),
+          ),
+        ),
+        title: Text(
+          transaction.title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Text(
+              '${category.name} • ${account.name}',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${DateFormat('MMM dd, yyyy').format(transaction.date)} • ${DateFormat('h:mm a').format(transaction.time)}',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+            if (transaction.notes != null && transaction.notes!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                transaction.notes!,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  fontStyle: FontStyle.italic,
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${transaction.type == TransactionType.income ? '+' : '-'}₹${NumberFormat('#,##,###.##').format(transaction.amount)}',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: transaction.type == TransactionType.income
+                    ? const Color(0xFF2E7D32)
+                    : const Color(0xFFD32F2F),
               ),
             ),
-        ],
+            const SizedBox(height: 4),
+            Icon(
+              transaction.type == TransactionType.income
+                  ? Icons.trending_up
+                  : Icons.trending_down,
+              size: 16,
+              color: transaction.type == TransactionType.income
+                  ? const Color(0xFF2E7D32)
+                  : const Color(0xFFD32F2F),
+            ),
+          ],
+        ),
+        onTap: () => _editTransaction(transaction), // TAP TO EDIT
+        onLongPress: () =>
+            _deleteTransaction(transaction), // LONG PRESS TO DELETE
       ),
     );
   }
